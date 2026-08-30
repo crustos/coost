@@ -93,7 +93,7 @@ class __coapi fastring : public fast::stream {
         return this->assign(s, strlen(s));
     }
 
-    fastring& assign(const void* s, size_t n) {
+    fastring& assign_mem(const void* s, size_t n) {
         if (!this->_inside((const char*)s)) return this->_assign(s, n);
         assert((const char*)s + n <= _p + _size);
         if (s != _p) memmove(_p, s, n);
@@ -101,12 +101,20 @@ class __coapi fastring : public fast::stream {
         return *this;
     }
 
-    fastring& assign(size_t n, char c) {
+    fastring& assign_n(size_t n, char c) {
         this->reserve(n + 1);
         memset(_p, c, n);
         _size = n;
         return *this;
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    fastring& assign(const void* s, size_t n) { return this->assign_mem(s, n); }
+    fastring& assign(size_t n, char c) { return this->assign_n(n, c); }
+#endif /* CO_CRUST */
+
 
     template<typename S>
     fastring& assign(S&& s) {
@@ -122,7 +130,7 @@ class __coapi fastring : public fast::stream {
         return *(fastring*) fast::stream::append_nomchk(p, n);
     }
 
-    fastring& append(const char* s) {
+    fastring& append_cstr(const char* s) {
         return this->append(s, strlen(s));
     }
 
@@ -131,7 +139,7 @@ class __coapi fastring : public fast::stream {
         return this->append_nomchk(s, strlen(s));
     }
 
-    fastring& append(const fastring& s) {
+    fastring& append_str(const fastring& s) {
         if (&s != this) return this->append_nomchk(s.data(), s.size());
         this->reserve((_size << 1) + !!_size);
         memcpy(_p + _size, _p, _size); // append itself
@@ -139,7 +147,7 @@ class __coapi fastring : public fast::stream {
         return *this;
     }
 
-    fastring& append(const std::string& s) {
+    fastring& append_stdstr(const std::string& s) {
         return this->append_nomchk(s.data(), s.size());
     }
 
@@ -147,9 +155,19 @@ class __coapi fastring : public fast::stream {
         return *(fastring*) fast::stream::append_chars(n, c);
     }
 
-    fastring& append(char c) {
+    fastring& append_char(char c) {
         return *(fastring*) fast::stream::append(c);
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    fastring& append(const char* s) { return this->append_cstr(s); }
+    fastring& append(const fastring& s) { return this->append_str(s); }
+    fastring& append(const std::string& s) { return this->append_stdstr(s); }
+    fastring& append(char c) { return this->append_char(c); }
+#endif /* CO_CRUST */
+
 
     fastring& push_back(char c) { return this->append(c); }
 
@@ -322,23 +340,33 @@ class __coapi fastring : public fast::stream {
         return this->compare(pos, len, s.data(), 0);
     }
 
-    bool contains(char c) const {
+    bool contains_char(char c) const {
         return this->find(c) != npos;
     }
 
-    bool contains(const char* s) const {
+    bool contains_cstr(const char* s) const {
         return this->find(s) != npos;
     }
 
-    bool contains(const fastring& s) const {
-        return this->contains(s.c_str());
+    bool contains_str(const fastring& s) const {
+        return this->contains_cstr(s.c_str());
     }
 
-    bool contains(const std::string& s) const {
-        return this->contains(s.c_str());
+    bool contains_stdstr(const std::string& s) const {
+        return this->contains_cstr(s.c_str());
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    bool contains(char c) const { return this->contains_char(c); }
+    bool contains(const char* s) const { return this->contains_cstr(s); }
+    bool contains(const fastring& s) const { return this->contains_str(s); }
+    bool contains(const std::string& s) const { return this->contains_stdstr(s); }
+#endif /* CO_CRUST */
 
-    bool starts_with(char c) const {
+
+    bool starts_with_char(char c) const {
         return !this->empty() && this->front() == c;
     }
 
@@ -346,19 +374,29 @@ class __coapi fastring : public fast::stream {
         return n == 0 || (n <= _size && ::memcmp(_p, s, n) == 0);
     }
 
-    bool starts_with(const char* s) const {
+    bool starts_with_cstr(const char* s) const {
         return this->starts_with(s, strlen(s));
     }
 
-    bool starts_with(const fastring& s) const {
+    bool starts_with_str(const fastring& s) const {
         return this->starts_with(s.data(), s.size());
     }
 
-    bool starts_with(const std::string& s) const {
+    bool starts_with_stdstr(const std::string& s) const {
         return this->starts_with(s.data(), s.size());
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    bool starts_with(char c) const { return this->starts_with_char(c); }
+    bool starts_with(const char* s) const { return this->starts_with_cstr(s); }
+    bool starts_with(const fastring& s) const { return this->starts_with_str(s); }
+    bool starts_with(const std::string& s) const { return this->starts_with_stdstr(s); }
+#endif /* CO_CRUST */
 
-    bool ends_with(char c) const {
+
+    bool ends_with_char(char c) const {
         return !this->empty() && this->back() == c;
     }
 
@@ -366,74 +404,114 @@ class __coapi fastring : public fast::stream {
         return n == 0 || (n <= _size && ::memcmp(_p + _size - n, s, n) == 0);
     }
 
-    bool ends_with(const char* s) const {
+    bool ends_with_cstr(const char* s) const {
         return this->ends_with(s, strlen(s));
     }
 
-    bool ends_with(const fastring& s) const {
+    bool ends_with_str(const fastring& s) const {
         return this->ends_with(s.data(), s.size());
     }
 
-    bool ends_with(const std::string& s) const {
+    bool ends_with_stdstr(const std::string& s) const {
         return this->ends_with(s.data(), s.size());
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    bool ends_with(char c) const { return this->ends_with_char(c); }
+    bool ends_with(const char* s) const { return this->ends_with_cstr(s); }
+    bool ends_with(const fastring& s) const { return this->ends_with_str(s); }
+    bool ends_with(const std::string& s) const { return this->ends_with_stdstr(s); }
+#endif /* CO_CRUST */
+
 
     fastring& remove_prefix(const char* s, size_t n) {
         return this->starts_with(s, n) ? this->trim(n, 'l') : *this;
     }
 
-    fastring& remove_prefix(const char* s) {
+    fastring& remove_prefix_cstr(const char* s) {
         return this->remove_prefix(s, strlen(s));
     }
 
-    fastring& remove_prefix(const fastring& s) {
+    fastring& remove_prefix_str(const fastring& s) {
         return this->remove_prefix(s.data(), s.size());
     }
 
-    fastring& remove_prefix(const std::string& s) {
+    fastring& remove_prefix_stdstr(const std::string& s) {
         return this->remove_prefix(s.data(), s.size());
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    fastring& remove_prefix(const char* s) { return this->remove_prefix_cstr(s); }
+    fastring& remove_prefix(const fastring& s) { return this->remove_prefix_str(s); }
+    fastring& remove_prefix(const std::string& s) { return this->remove_prefix_stdstr(s); }
+#endif /* CO_CRUST */
+
 
     fastring& remove_suffix(const char* s, size_t n) {
         if (this->ends_with(s, n)) this->resize(this->size() - n); 
         return *this;
     }
 
-    fastring& remove_suffix(const char* s) {
+    fastring& remove_suffix_cstr(const char* s) {
         return this->remove_suffix(s, strlen(s));
     }
 
-    fastring& remove_suffix(const fastring& s) {
+    fastring& remove_suffix_str(const fastring& s) {
         return this->remove_suffix(s.data(), s.size());
     }
 
-    fastring& remove_suffix(const std::string& s) {
+    fastring& remove_suffix_stdstr(const std::string& s) {
         return this->remove_suffix(s.data(), s.size());
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    fastring& remove_suffix(const char* s) { return this->remove_suffix_cstr(s); }
+    fastring& remove_suffix(const fastring& s) { return this->remove_suffix_str(s); }
+    fastring& remove_suffix(const std::string& s) { return this->remove_suffix_stdstr(s); }
+#endif /* CO_CRUST */
+
 
     // remove character @c at the left or right side, or both sides
     // @d: 'l' or 'L' for left, 'r' or 'R' for right, otherwise for both sides
-    fastring& trim(char c, char d='b');
+    fastring& trim_char(char c, char d='b');
 
-    fastring& trim(unsigned char c, char d='b') {
-        return this->trim((char)c, d);
+    fastring& trim_u8(unsigned char c, char d='b') {
+        return this->trim_char((char)c, d);
     }
 
-    fastring& trim(signed char c, char d='b') {
-        return this->trim((char)c, d);
+    fastring& trim_i8(signed char c, char d='b') {
+        return this->trim_char((char)c, d);
     }
 
     // remove characters in @s at the left or right side, or both sides
     // @d: 'l' or 'L' for left, 'r' or 'R' for right, otherwise for both sides
-    fastring& trim(const char* s=" \t\r\n", char d='b');
+    fastring& trim_cstr(const char* s=" \t\r\n", char d='b');
     
     // remove the first n characters or the last n characters, or both
     // @d: 'l' or 'L' for left, 'r' or 'R' for right, otherwise for both sides
-    fastring& trim(size_t n, char d='b');
+    fastring& trim_n(size_t n, char d='b');
 
-    fastring& trim(int n, char d='b') {
-        return this->trim((size_t)n, d);
+    fastring& trim_i32(int n, char d='b') {
+        return this->trim_n((size_t)n, d);
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    fastring& trim(char c, char d='b') { return this->trim_char(c, d); }
+    fastring& trim(unsigned char c, char d='b') { return this->trim_u8(c, d); }
+    fastring& trim(signed char c, char d='b') { return this->trim_i8(c, d); }
+    fastring& trim(const char* s=" \t\r\n", char d='b') { return this->trim_cstr(s, d); }
+    fastring& trim(size_t n, char d='b') { return this->trim_n(n, d); }
+    fastring& trim(int n, char d='b') { return this->trim_i32(n, d); }
+#endif /* CO_CRUST */
+
 
     // the same as trim
     template<typename ...X>
@@ -445,13 +523,21 @@ class __coapi fastring : public fast::stream {
     // try @t times at most
     fastring& replace(const char* sub, size_t n, const char* to, size_t m, size_t t=0);
 
-    fastring& replace(const char* sub, const char* to, size_t t=0) {
+    fastring& replace_cstr(const char* sub, const char* to, size_t t=0) {
         return this->replace(sub, strlen(sub), to, strlen(to), t);
     }
 
-    fastring& replace(const fastring& sub, const fastring& to, size_t t=0) {
+    fastring& replace_str(const fastring& sub, const fastring& to, size_t t=0) {
         return this->replace(sub.data(), sub.size(), to.data(), to.size(), t);
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    fastring& replace(const char* sub, const char* to, size_t t=0) { return this->replace_cstr(sub, to, t); }
+    fastring& replace(const fastring& sub, const fastring& to, size_t t=0) { return this->replace_str(sub, to, t); }
+#endif /* CO_CRUST */
+
 
     fastring& tolower();
     fastring& toupper();
