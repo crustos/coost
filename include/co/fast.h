@@ -141,7 +141,13 @@ class __coapi stream {
     stream& operator=(stream&& s) {
         if (&s != this) {
             if (_p) co::free(_p, _cap);
-            new (this) stream(std::move(s));
+            /* Member-wise steal rather than placement-new over `this`
+               from the moved source: placement new is not in the Crust
+               C++ subset, and this is exactly what the move constructor
+               does -- take the buffer, zero the source. */
+            _cap = s._cap; _size = s._size; _p = s._p;
+            s._p = 0;
+            s._cap = s._size = 0;
         }
         return *this;
     }
@@ -168,14 +174,28 @@ class __coapi stream {
         return "";
     }
 
+    /* Under -D CO_CRUST the reference-returning accessors are absent:
+       a `char&` return is not in the subset, and a const/non-const pair
+       lowers to one symbol there (no constness is tracked). The pointer
+       accessors below are the subset spelling -- `*s.back_ptr() = c`
+       writes the element -- and are available to both builds. The
+       non-const `operator[]` stays: the subset's index lowering wants
+       exactly a reference return and rewrites `s[i]` to the element. */
+#ifndef CO_CRUST
     char& back() { return _p[_size - 1]; }
     const char& back() const { return _p[_size - 1]; }
 
     char& front() { return _p[0]; }
     const char& front() const { return _p[0]; }
+#endif /* CO_CRUST */
+
+    char* back_ptr() { return &_p[_size - 1]; }
+    char* front_ptr() { return &_p[0]; }
 
     char& operator[](size_t i) { return _p[i]; }
+#ifndef CO_CRUST
     const char& operator[](size_t i) const { return _p[i]; }
+#endif /* CO_CRUST */
 
     // resize only, will not fill the expanded memory with zeros
     void resize(size_t n) {

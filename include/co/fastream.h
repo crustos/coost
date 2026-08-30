@@ -23,7 +23,15 @@ class __coapi fastream : public fast::stream {
     }
 
     fastream& operator=(fastream&& fs) {
-        return (fastream&) fast::stream::operator=(std::move(fs));
+        /* Member-wise for the same reason as fastring's: a base-scoped
+           operator call is not in the Crust C++ subset. */
+        if (&fs != this) {
+            if (_p) co::free(_p, _cap);
+            _cap = fs._cap; _size = fs._size; _p = fs._p;
+            fs._p = 0;
+            fs._cap = fs._size = 0;
+        }
+        return *this;
     }
 
     fastring str() const {

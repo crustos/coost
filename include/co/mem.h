@@ -367,6 +367,14 @@ struct system_allocator {
     }
 };
 
+/* STL-interop glue: this allocator exists to hand co::alloc to
+   std::map, std::set and friends through co/stl.h. Under the Crust C++
+   subset those *are* the supplied containers and an allocator parameter
+   is not a concept there, so the whole apparatus -- rebind, reference
+   typedefs, the converting constructor template, defaulted members in a
+   class template -- is absent under -D CO_CRUST rather than ported.
+   co/stl.h's aliases collapse to the plain containers there. */
+#ifndef CO_CRUST
 // allocator for STL, alternative to std::allocator
 template<class T>
 struct stl_allocator {
@@ -424,5 +432,6 @@ template<class T1, class T2>
 constexpr bool operator!=(const stl_allocator<T1>&, const stl_allocator<T2>&) noexcept {
     return false;
 }
+#endif /* CO_CRUST */
 
 } // co

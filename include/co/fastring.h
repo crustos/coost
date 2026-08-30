@@ -67,7 +67,18 @@ class __coapi fastring : public fast::stream {
     }
 
     fastring& operator=(fastring&& s) {
-        return (fastring&) fast::stream::operator=(std::move(s));
+        /* Member-wise rather than delegating to the base's move
+           assignment with a base-scoped operator call:
+           a base-scoped operator call is not in the Crust C++ subset. The
+           steal below is what the base's move assignment does, on fields
+           the base declares protected for exactly this reach. */
+        if (&s != this) {
+            if (_p) co::free(_p, _cap);
+            _cap = s._cap; _size = s._size; _p = s._p;
+            s._p = 0;
+            s._cap = s._size = 0;
+        }
+        return *this;
     }
 
     fastring& operator=(const fastring& s) {
@@ -886,6 +897,12 @@ struct hash<fastring> {
 };
 } // std
 
+/* A string view whose whole point is three one-argument converting
+   constructors -- overload-by-type, which the Crust C++ subset resolves
+   by argument *count* and refuses. Its only consumers are cout.h's
+   color helpers, themselves absent under -D CO_CRUST, so the class goes
+   with them rather than being redesigned. */
+#ifndef CO_CRUST
 class anystr {
   public:
     constexpr anystr() noexcept : _s(""), _n(0) {}
@@ -905,3 +922,4 @@ class anystr {
     const char* const _s;
     const size_t _n;
 };
+#endif /* CO_CRUST */
