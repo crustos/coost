@@ -1078,7 +1078,7 @@ LevelLogSaver::LevelLogSaver(const char* fname, unsigned fnlen, unsigned line, i
     _n = _s.size();
     _s.resize(_n + (LogTime::t_len + 1)); // make room for: "I0523 17:00:00.123"
     _s[_n] = "DIWE"[level];
-    (_s << ' ' << co::thread_id() << ' ').append(fname, fnlen) << ':' << line << "] ";
+    (*(_s << ' ' << co::thread_id() << ' ').append(fname, fnlen)) << ':' << line << "] ";
 }
 
 LevelLogSaver::~LevelLogSaver() {
@@ -1091,7 +1091,7 @@ FatalLogSaver::FatalLogSaver(const char* fname, unsigned fnlen, unsigned line)
     : _s(log_stream()) {
     _s.resize(LogTime::t_len + 1);
     _s.front() = 'F';
-    (_s << ' ' << co::thread_id() << ' ').append(fname, fnlen) << ':' << line << "] ";
+    (*(_s << ' ' << co::thread_id() << ' ').append(fname, fnlen)) << ':' << line << "] ";
 }
 
 FatalLogSaver::~FatalLogSaver() {
@@ -1103,7 +1103,7 @@ TLogSaver::TLogSaver(const char* fname, unsigned fnlen, unsigned line, const cha
     : _s(log_stream()), _topic(topic) {
     _n = _s.size();
     _s.resize(_n + (LogTime::t_len)); // make room for: "0523 17:00:00.123"
-    (_s << ' ' << co::thread_id() << ' ').append(fname, fnlen) << ':' << line << "] ";
+    (*(_s << ' ' << co::thread_id() << ' ').append(fname, fnlen)) << ':' << line << "] ";
 }
 
 TLogSaver::~TLogSaver() {
