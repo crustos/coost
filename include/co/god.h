@@ -150,6 +150,14 @@ inline T fetch_xor(T* p, V v) {
     return x;
 }
 
+/* Type-trait alias templates. These exist to drive SFINAE -- every
+   use is a `god::if_t<..>` in a template head -- and SFINAE is not in
+   the Crust C++ subset, so the members that use them are already absent
+   under -D CO_CRUST. The aliases go with them: an alias over
+   `std::enable_if<C,T>::type` is type-level computation with nothing
+   for C to hold, and passed through it reached the C front end as
+   `typedef typename std::enable_if<C, T>type if_t;`. */
+#ifndef CO_CRUST
 template<bool C, typename T=void>
 using if_t = typename std::enable_if<C, T>::type;
 
@@ -178,6 +186,7 @@ using _const_t = typename std::add_const<T>::type;
 //   - T, T&, T&&, const T, const T&  =>  const T&
 template<typename T>
 using const_ref_t = typename std::add_lvalue_reference<_const_t<rm_ref_t<T>>>::type;
+#endif /* CO_CRUST */
 
 // check if T is the same type as U
 //
