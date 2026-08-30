@@ -662,7 +662,7 @@ inline const char* find_escapse(const char* b, const char* e, char& c) {
 }
 
 fastream& Json::_json2str(fastream& fs, bool debug, int mdp) const {
-    if (!_h) return fs.append("null", 4);
+    if (!_h) return *fs.append("null", 4);
 
     switch (_h->type) {
       case t_string: {
@@ -674,7 +674,7 @@ fastream& Json::_json2str(fastream& fs, bool debug, int mdp) const {
 
         char c;
         for (S p; (p = find_escapse(s, e, c)) < e;) {
-            fs.append(s, p - s).append('\\').append(c);
+            fs.append(s, p - s)->append('\\').append(c);
             s = p + 1;
         }
 
@@ -726,7 +726,7 @@ fastream& Json::_json2str(fastream& fs, bool debug, int mdp) const {
 // @indent:  4 spaces by default
 // @n:       number of spaces to insert at the beginning for the current line
 fastream& Json::_json2pretty(fastream& fs, int indent, int n, int mdp) const {
-    if (!_h) return fs.append("null", 4);
+    if (!_h) return *fs.append("null", 4);
 
     switch (_h->type) {
       case t_object: {
