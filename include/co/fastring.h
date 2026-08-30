@@ -114,12 +114,12 @@ class __coapi fastring : public fast::stream {
     }
 
     fastring& append(const void* p, size_t n) {
-        return (fastring&) fast::stream::append(p, n);
+        return *(fastring*) fast::stream::append(p, n);
     }
  
     // like append(), but will not check if p overlaps with the internal memory
     fastring& append_nomchk(const void* p, size_t n) {
-        return (fastring&) fast::stream::append_nomchk(p, n);
+        return *(fastring*) fast::stream::append_nomchk(p, n);
     }
 
     fastring& append(const char* s) {
@@ -144,11 +144,11 @@ class __coapi fastring : public fast::stream {
     }
 
     fastring& append_chars(size_t n, char c) {
-        return (fastring&) fast::stream::append_chars(n, c);
+        return *(fastring*) fast::stream::append_chars(n, c);
     }
 
     fastring& append(char c) {
-        return (fastring&) fast::stream::append(c);
+        return *(fastring*) fast::stream::append(c);
     }
 
     fastring& push_back(char c) { return this->append(c); }
