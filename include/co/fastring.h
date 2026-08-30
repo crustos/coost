@@ -294,20 +294,14 @@ class __coapi fastring : public fast::stream {
     }
 #endif /* CO_CRUST */
 
+    /* The two- and four-argument forms are unique, so they keep the bare
+       name and carry the work. The rest are split by the type of their
+       *string* argument -- which sits first in the whole-string forms and
+       third in the substring ones, so this family is named by hand rather
+       than by the first parameter. `_sub` marks a comparison of a
+       substring of this string; `_sub_sub` marks one of both. */
     int compare(const char* s, size_t n) const {
         return str::memcmp(_p, _size, s, n);
-    }
-
-    int compare(const char* s) const {
-        return this->compare(s, strlen(s));
-    }
-
-    int compare(const fastring& s) const noexcept {
-        return this->compare(s.data(), s.size());
-    }
-
-    int compare(const std::string& s) const noexcept {
-        return this->compare(s.data(), s.size());
     }
 
     int compare(size_t pos, size_t len, const char* s, size_t n) const {
@@ -316,29 +310,68 @@ class __coapi fastring : public fast::stream {
         return str::memcmp(_p, 0, s, n);
     }
 
-    int compare(size_t pos, size_t len, const char* s) const {
+    int compare_cstr(const char* s) const {
+        return this->compare(s, strlen(s));
+    }
+
+    int compare_str(const fastring& s) const noexcept {
+        return this->compare(s.data(), s.size());
+    }
+
+    int compare_stdstr(const std::string& s) const noexcept {
+        return this->compare(s.data(), s.size());
+    }
+
+    int compare_sub_cstr(size_t pos, size_t len, const char* s) const {
         return this->compare(pos, len, s, strlen(s));
     }
 
+    int compare_sub_str(size_t pos, size_t len, const fastring& s) const {
+        return this->compare(pos, len, s.data(), s.size());
+    }
+
+    int compare_sub_stdstr(size_t pos, size_t len, const std::string& s) const {
+        return this->compare(pos, len, s.data(), s.size());
+    }
+
+    int compare_sub_str_sub(size_t pos, size_t len, const fastring& s,
+                            size_t spos, size_t n=npos) const {
+        const intptr_t x = (intptr_t)(s.size() - spos);
+        if (x > 0) return this->compare(pos, len, s.data() + spos, n < (size_t)x ? n : x);
+        return this->compare(pos, len, s.data(), 0);
+    }
+
+    int compare_sub_stdstr_sub(size_t pos, size_t len, const std::string& s,
+                               size_t spos, size_t n=npos) const {
+        const intptr_t x = (intptr_t)(s.size() - spos);
+        if (x > 0) return this->compare(pos, len, s.data() + spos, n < (size_t)x ? n : x);
+        return this->compare(pos, len, s.data(), 0);
+    }
+
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent under the Crust C++
+       subset, which resolves overloads by argument count. */
+    int compare(const char* s) const { return this->compare_cstr(s); }
+    int compare(const fastring& s) const noexcept { return this->compare_str(s); }
+    int compare(const std::string& s) const noexcept { return this->compare_stdstr(s); }
+    int compare(size_t pos, size_t len, const char* s) const {
+        return this->compare_sub_cstr(pos, len, s);
+    }
     int compare(size_t pos, size_t len, const fastring& s) const {
-        return this->compare(pos, len, s.data(), s.size());
+        return this->compare_sub_str(pos, len, s);
     }
-
     int compare(size_t pos, size_t len, const std::string& s) const {
-        return this->compare(pos, len, s.data(), s.size());
+        return this->compare_sub_stdstr(pos, len, s);
     }
-
-    int compare(size_t pos, size_t len, const fastring& s, size_t spos, size_t n=npos) const {
-        const intptr_t x = (intptr_t)(s.size() - spos);
-        if (x > 0) return this->compare(pos, len, s.data() + spos, n < (size_t)x ? n : x);
-        return this->compare(pos, len, s.data(), 0);
+    int compare(size_t pos, size_t len, const fastring& s, size_t spos,
+                size_t n=npos) const {
+        return this->compare_sub_str_sub(pos, len, s, spos, n);
     }
-
-    int compare(size_t pos, size_t len, const std::string& s, size_t spos, size_t n=npos) const {
-        const intptr_t x = (intptr_t)(s.size() - spos);
-        if (x > 0) return this->compare(pos, len, s.data() + spos, n < (size_t)x ? n : x);
-        return this->compare(pos, len, s.data(), 0);
+    int compare(size_t pos, size_t len, const std::string& s, size_t spos,
+                size_t n=npos) const {
+        return this->compare_sub_stdstr_sub(pos, len, s, spos, n);
     }
+#endif /* CO_CRUST */
 
     bool contains_char(char c) const {
         return this->find(c) != npos;
@@ -563,7 +596,7 @@ class __coapi fastring : public fast::stream {
     }
 
     // find char @c
-    size_t find(char c) const {
+    size_t find_char(char c) const {
         if (!this->empty()) {
             char* const p = (char*) memchr(_p, c, _size);
             return p ? p - _p : npos;
@@ -572,7 +605,7 @@ class __coapi fastring : public fast::stream {
     }
 
     // find char @c from @pos
-    size_t find(char c, size_t pos) const {
+    size_t find_char_from(char c, size_t pos) const {
         if (pos < _size) {
             char* const p = (char*) memchr(_p + pos, c, _size - pos);
             return p ? p - _p : npos;
@@ -581,7 +614,7 @@ class __coapi fastring : public fast::stream {
     }
 
     // find char @c in [pos, pos + len)
-    size_t find(char c, size_t pos, size_t len) const {
+    size_t find_char_in(char c, size_t pos, size_t len) const {
         if (pos < _size) {
             const size_t n = _size - pos;
             char* const p = (char*) memchr(_p + pos, c, len < n ? len : n);
@@ -591,13 +624,13 @@ class __coapi fastring : public fast::stream {
     }
 
     // find sub string @s
-    size_t find(const char* s) const {
+    size_t find_cstr(const char* s) const {
         char* const p = str::memmem(_p, _size, s, strlen(s));
         return p ? p - _p : npos;
     }
 
     // find @s (length: @n) from @pos
-    size_t find(const char* s, size_t pos, size_t n) const {
+    size_t find_cstr_in(const char* s, size_t pos, size_t n) const {
         if (pos < _size) {
             char* const p = str::memmem(_p + pos, _size - pos, s, n);
             return p ? p - _p : npos;
@@ -606,19 +639,33 @@ class __coapi fastring : public fast::stream {
     }
 
     // find @s from @pos
-    size_t find(const char* s, size_t pos) const {
-        return this->find(s, pos, strlen(s));
+    size_t find_cstr_from(const char* s, size_t pos) const {
+        return this->find_cstr_in(s, pos, strlen(s));
     }
 
     // find @s from @pos
-    size_t find(const fastring& s, size_t pos=0) const {
-        return this->find(s.data(), pos, s.size());
+    size_t find_str(const fastring& s, size_t pos=0) const {
+        return this->find_cstr_in(s.data(), pos, s.size());
     }
 
     // find @s from @pos
-    size_t find(const std::string& s, size_t pos=0) const {
-        return this->find(s.data(), pos, s.size());
+    size_t find_stdstr(const std::string& s, size_t pos=0) const {
+        return this->find_cstr_in(s.data(), pos, s.size());
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    size_t find(char c) const { return this->find_char(c); }
+    size_t find(char c, size_t pos) const { return this->find_char_from(c, pos); }
+    size_t find(char c, size_t pos, size_t len) const { return this->find_char_in(c, pos, len); }
+    size_t find(const char* s) const { return this->find_cstr(s); }
+    size_t find(const char* s, size_t pos) const { return this->find_cstr_from(s, pos); }
+    size_t find(const char* s, size_t pos, size_t n) const { return this->find_cstr_in(s, pos, n); }
+    size_t find(const std::string& s, size_t pos=0) const { return this->find_stdstr(s, pos); }
+    size_t find(const fastring& s, size_t pos=0) const { return this->find_str(s, pos); }
+#endif /* CO_CRUST */
+
 
     // find @s (ignore the case)
     size_t ifind(const char* s) const {
@@ -636,39 +683,49 @@ class __coapi fastring : public fast::stream {
     }
 
     // find @s from @pos (ignore the case)
-    size_t ifind(const char* s, size_t pos) const {
+    size_t ifind_cstr(const char* s, size_t pos) const {
         return this->ifind(s, pos, strlen(s));
     }
 
     // find @s from @pos (ignore the case)
-    size_t ifind(const fastring& s, size_t pos=0) const {
+    size_t ifind_str(const fastring& s, size_t pos=0) const {
         return this->ifind(s.data(), pos, s.size());
     }
 
     // find @s from @pos (ignore the case)
-    size_t ifind(const std::string& s, size_t pos=0) const {
+    size_t ifind_stdstr(const std::string& s, size_t pos=0) const {
         return this->ifind(s.data(), pos, s.size());
     }
 
     // find char @c from @pos (ignore the case)
-    size_t ifind(char c, size_t pos=0) const {
+    size_t ifind_char(char c, size_t pos=0) const {
         return this->ifind(&c, pos, 1);
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    size_t ifind(char c, size_t pos=0) const { return this->ifind_char(c, pos); }
+    size_t ifind(const char* s, size_t pos) const { return this->ifind_cstr(s, pos); }
+    size_t ifind(const std::string& s, size_t pos=0) const { return this->ifind_stdstr(s, pos); }
+    size_t ifind(const fastring& s, size_t pos=0) const { return this->ifind_str(s, pos); }
+#endif /* CO_CRUST */
+
 
     // reverse find char @c
-    size_t rfind(char c) const {
+    size_t rfind_char(char c) const {
         char* const p = str::memrchr(_p, c, _size);
         return p ? p - _p : npos;
     }
 
     // reverse find char @c from @pos
-    size_t rfind(char c, size_t pos) const {
+    size_t rfind_char_from(char c, size_t pos) const {
         char* const p = str::memrchr(_p, c, pos < _size ? pos + 1 : _size);
         return p ? p - _p : npos;
     }
 
     // reverse find sub string @s
-    size_t rfind(const char* s) const {
+    size_t rfind_cstr(const char* s) const {
         const size_t n = strlen(s);
         if (n > 0) {
             char* const p = str::memrmem(_p, _size, s, n);
@@ -687,97 +744,147 @@ class __coapi fastring : public fast::stream {
     }
 
     // reverse find @s from @pos
-    size_t rfind(const char* s, size_t pos) const {
+    size_t rfind_cstr_from(const char* s, size_t pos) const {
         return this->rfind(s, pos, strlen(s));
     }
 
     // reverse find @s from @pos
-    size_t rfind(const fastring& s, size_t pos=npos) const {
+    size_t rfind_str(const fastring& s, size_t pos=npos) const {
         return this->rfind(s.data(), pos, s.size());
     }
 
     // reverse find @s from @pos
-    size_t rfind(const std::string& s, size_t pos=npos) const {
+    size_t rfind_stdstr(const std::string& s, size_t pos=npos) const {
         return this->rfind(s.data(), pos, s.size());
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    size_t rfind(char c) const { return this->rfind_char(c); }
+    size_t rfind(char c, size_t pos) const { return this->rfind_char_from(c, pos); }
+    size_t rfind(const char* s) const { return this->rfind_cstr(s); }
+    size_t rfind(const char* s, size_t pos) const { return this->rfind_cstr_from(s, pos); }
+    size_t rfind(const std::string& s, size_t pos=npos) const { return this->rfind_stdstr(s, pos); }
+    size_t rfind(const fastring& s, size_t pos=npos) const { return this->rfind_str(s, pos); }
+#endif /* CO_CRUST */
+
 
     // find first char in @s (length: @n) from @pos
     size_t find_first_of(const char* s, size_t pos, size_t n) const;
 
     // find first char in @s from @pos
-    size_t find_first_of(const char* s, size_t pos=0) const {
+    size_t find_first_of_cstr(const char* s, size_t pos=0) const {
         return this->find_first_of(s, pos, strlen(s));
     }
 
     // find first char in @s from @pos
-    size_t find_first_of(const fastring& s, size_t pos=0) const {
+    size_t find_first_of_str(const fastring& s, size_t pos=0) const {
         return this->find_first_of(s.data(), pos, s.size());
     }
 
     // find first char in @s from @pos
-    size_t find_first_of(const std::string& s, size_t pos=0) const {
+    size_t find_first_of_stdstr(const std::string& s, size_t pos=0) const {
         return this->find_first_of(s.data(), pos, s.size());
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    size_t find_first_of(const char* s, size_t pos=0) const { return this->find_first_of_cstr(s, pos); }
+    size_t find_first_of(const std::string& s, size_t pos=0) const { return this->find_first_of_stdstr(s, pos); }
+    size_t find_first_of(const fastring& s, size_t pos=0) const { return this->find_first_of_str(s, pos); }
+#endif /* CO_CRUST */
+
 
     // find first char not in @s (length: @n) from @pos
     size_t find_first_not_of(const char* s, size_t pos, size_t n) const;
 
     // find first char not in @s from @pos
-    size_t find_first_not_of(const char* s, size_t pos=0) const {
+    size_t find_first_not_of_cstr(const char* s, size_t pos=0) const {
         return this->find_first_not_of(s, pos, strlen(s));
     }
 
     // find first char not in @s from @pos
-    size_t find_first_not_of(const fastring& s, size_t pos=0) const {
+    size_t find_first_not_of_str(const fastring& s, size_t pos=0) const {
         return this->find_first_not_of(s.data(), pos, s.size());
     }
 
     // find first char not in @s from @pos
-    size_t find_first_not_of(const std::string& s, size_t pos=0) const {
+    size_t find_first_not_of_stdstr(const std::string& s, size_t pos=0) const {
         return this->find_first_not_of(s.data(), pos, s.size());
     }
 
     // find first char not equal to @c
-    size_t find_first_not_of(char c, size_t pos=0) const;
+    size_t find_first_not_of_char(char c, size_t pos=0) const;
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    size_t find_first_not_of(char c, size_t pos=0) const { return this->find_first_not_of_char(c, pos); }
+    size_t find_first_not_of(const char* s, size_t pos=0) const { return this->find_first_not_of_cstr(s, pos); }
+    size_t find_first_not_of(const std::string& s, size_t pos=0) const { return this->find_first_not_of_stdstr(s, pos); }
+    size_t find_first_not_of(const fastring& s, size_t pos=0) const { return this->find_first_not_of_str(s, pos); }
+#endif /* CO_CRUST */
+
 
     // find last char in @s (length: @n) from @pos
     size_t find_last_of(const char* s, size_t pos, size_t n) const;
 
     // find last char in @s from @pos
-    size_t find_last_of(const char* s, size_t pos=npos) const {
+    size_t find_last_of_cstr(const char* s, size_t pos=npos) const {
         return this->find_last_of(s, pos, strlen(s));
     }
 
     // find last char in @s from @pos
-    size_t find_last_of(const fastring& s, size_t pos=npos) const {
+    size_t find_last_of_str(const fastring& s, size_t pos=npos) const {
         return this->find_last_of(s.data(), pos, s.size());
     }
 
     // find last char in @s from @pos
-    size_t find_last_of(const std::string& s, size_t pos=npos) const {
+    size_t find_last_of_stdstr(const std::string& s, size_t pos=npos) const {
         return this->find_last_of(s.data(), pos, s.size());
     }
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    size_t find_last_of(const char* s, size_t pos=npos) const { return this->find_last_of_cstr(s, pos); }
+    size_t find_last_of(const std::string& s, size_t pos=npos) const { return this->find_last_of_stdstr(s, pos); }
+    size_t find_last_of(const fastring& s, size_t pos=npos) const { return this->find_last_of_str(s, pos); }
+#endif /* CO_CRUST */
+
 
     // find last char not in @s (length: @n) from @pos
     size_t find_last_not_of(const char* s, size_t pos, size_t n) const;
 
     // find last char not in @s from @pos
-    size_t find_last_not_of(const char* s, size_t pos=npos) const {
+    size_t find_last_not_of_cstr(const char* s, size_t pos=npos) const {
         return this->find_last_not_of(s, pos, strlen(s));
     }
 
     // find last char not in @s from @pos
-    size_t find_last_not_of(const fastring& s, size_t pos=npos) const {
+    size_t find_last_not_of_str(const fastring& s, size_t pos=npos) const {
         return this->find_last_not_of(s.data(), pos, s.size());
     }
 
     // find last char not in @s from @pos
-    size_t find_last_not_of(const std::string& s, size_t pos=npos) const {
+    size_t find_last_not_of_stdstr(const std::string& s, size_t pos=npos) const {
         return this->find_last_not_of(s.data(), pos, s.size());
     }
 
     // find last char not equal to @c
-    size_t find_last_not_of(char c, size_t pos=npos) const;
+    size_t find_last_not_of_char(char c, size_t pos=npos) const;
+#ifndef CO_CRUST
+    /* Type-overloaded spellings: same arity, so absent
+       under the Crust C++ subset, which resolves overloads
+       by argument count. Each delegates to its named form. */
+    size_t find_last_not_of(char c, size_t pos=npos) const { return this->find_last_not_of_char(c, pos); }
+    size_t find_last_not_of(const char* s, size_t pos=npos) const { return this->find_last_not_of_cstr(s, pos); }
+    size_t find_last_not_of(const std::string& s, size_t pos=npos) const { return this->find_last_not_of_stdstr(s, pos); }
+    size_t find_last_not_of(const fastring& s, size_t pos=npos) const { return this->find_last_not_of_str(s, pos); }
+#endif /* CO_CRUST */
+
 
     // * matches 0 or more characters
     // ? matches exactly one character
