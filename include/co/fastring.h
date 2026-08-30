@@ -132,8 +132,8 @@ class __coapi fastring : public fast::stream {
         return this->append_nomchk(s.data(), s.size());
     }
 
-    fastring& append(size_t n, char c) {
-        return (fastring&) fast::stream::append(n, c);
+    fastring& append_chars(size_t n, char c) {
+        return (fastring&) fast::stream::append_chars(n, c);
     }
 
     fastring& append(char c) {
@@ -162,6 +162,12 @@ class __coapi fastring : public fast::stream {
 
     fastring& cat() { return *this; }
 
+/* The stream-insertion API. `operator<<` is permanently out of the
+   Crust C++ subset, and these are also same-arity overloads, which the
+   subset resolves by argument count -- so under `-D CO_CRUST` the whole
+   family is absent and callers use the named `append*` methods on
+   `fast::stream` instead. The ordinary C++ build is unchanged. */
+#ifndef CO_CRUST
     template<typename X, typename ...V>
     fastring& cat(X&& x, V&& ... v) {
         (*this) << std::forward<X>(x);
@@ -257,6 +263,7 @@ class __coapi fastring : public fast::stream {
     fastring& operator<<(const std::string& s) {
         return this->append_nomchk(s.data(), s.size());
     }
+#endif /* CO_CRUST */
 
     int compare(const char* s, size_t n) const {
         return str::memcmp(_p, _size, s, n);
@@ -864,9 +871,11 @@ inline bool operator>=(const char* a, const fastring& b) {
     return !(b > a);
 }
 
+#ifndef CO_CRUST
 inline std::ostream& operator<<(std::ostream& os, const fastring& s) {
     return os.write(s.data(), s.size());
 }
+#endif /* CO_CRUST */
 
 namespace std {
 template<>

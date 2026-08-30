@@ -66,8 +66,8 @@ class __coapi fastream : public fast::stream {
     }
 
     // append n characters
-    fastream& append(size_t n, char c) {
-        return (fastream&) fast::stream::append(n, c);
+    fastream& append_chars(size_t n, char c) {
+        return (fastream&) fast::stream::append_chars(n, c);
     }
 
     fastream& append(char c) {
@@ -102,6 +102,12 @@ class __coapi fastream : public fast::stream {
     // concatenate fastream to any number of elements
     //   - fastream s("hello");
     //     s.cat(' ', 123);  // s -> "hello 123"
+/* The stream-insertion API. `operator<<` is permanently out of the
+   Crust C++ subset, and these are also same-arity overloads, which the
+   subset resolves by argument count -- so under `-D CO_CRUST` the whole
+   family is absent and callers use the named `append*` methods on
+   `fast::stream` instead. The ordinary C++ build is unchanged. */
+#ifndef CO_CRUST
     template<typename X, typename ...V>
     fastream& cat(X&& x, V&& ... v) {
         (*this) << std::forward<X>(x);
@@ -201,4 +207,5 @@ class __coapi fastream : public fast::stream {
     fastream& operator<<(const fastream& s) {
         return this->append(s);
     }
+#endif /* CO_CRUST */
 };

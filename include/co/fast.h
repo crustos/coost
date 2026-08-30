@@ -224,7 +224,7 @@ class __coapi stream {
     void swap(stream&& s) noexcept { s.swap(*this); }
 
   protected:
-    stream& append(size_t n, char c) {
+    stream& append_chars(size_t n, char c) {
         this->ensure(n);
         memset(_p + _size, c, n);
         _size += n;
@@ -256,6 +256,9 @@ class __coapi stream {
         return *this;
     }
 
+/* See fastream.h: absent under `-D CO_CRUST`; use the named
+   `append*` methods. */
+#ifndef CO_CRUST
     stream& operator<<(bool v) {
         return v ? this->append_nomchk("true", 4) : this->append_nomchk("false", 5);
     }
@@ -339,6 +342,7 @@ class __coapi stream {
     stream& operator<<(std::nullptr_t) {
         return this->append_nomchk("0x0", 3);
     }
+#endif /* CO_CRUST */
 
     size_t _cap;
     size_t _size;
