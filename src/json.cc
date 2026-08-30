@@ -674,7 +674,7 @@ fastream& Json::_json2str(fastream& fs, bool debug, int mdp) const {
 
         char c;
         for (S p; (p = find_escapse(s, e, c)) < e;) {
-            fs.append(s, p - s)->append('\\').append(c);
+            fs.append(s, p - s)->append_char('\\')->append(c);
             s = p + 1;
         }
 
@@ -693,7 +693,7 @@ fastream& Json::_json2str(fastream& fs, bool debug, int mdp) const {
                 ((Json*)&a[i + 1])->_json2str(fs, debug, mdp) << ',';
             }
         }
-        fs.back() == ',' ? (void)(fs.back() = '}') : (void)(fs.append('}'));
+        fs.back() == ',' ? (void)(fs.back() = '}') : (void)(fs.append_char('}'));
         break;
       }
 
@@ -705,7 +705,7 @@ fastream& Json::_json2str(fastream& fs, bool debug, int mdp) const {
                 ((Json*)&a[i])->_json2str(fs, debug, mdp) << ',';
             }
         }
-        fs.back() == ',' ? (void)(fs.back() = ']') : (void)(fs.append(']'));
+        fs.back() == ',' ? (void)(fs.back() = ']') : (void)(fs.append_char(']'));
         break;
       }
 
@@ -734,7 +734,7 @@ fastream& Json::_json2pretty(fastream& fs, int indent, int n, int mdp) const {
         if (_h->p) {
             auto& a = *(xx::Array*)&_h->p;
             for (uint32 i = 0; i < a.size(); i += 2) {
-                fs.append('\n').append_chars(n, ' ');
+                fs.append_char('\n')->append_chars(n, ' ');
                 fs << '"' << (S)a[i] << '"' << ": ";
                 ((Json*)&a[i + 1])->_json2pretty(fs, indent, n + indent, mdp) << ',';
             }
@@ -752,7 +752,7 @@ fastream& Json::_json2pretty(fastream& fs, int indent, int n, int mdp) const {
         if (_h->p) {
             auto& a = *(xx::Array*)&_h->p;
             for (uint32 i = 0; i < a.size(); ++i) {
-                fs.append('\n').append_chars(n, ' ');
+                fs.append_char('\n')->append_chars(n, ' ');
                 ((Json*)&a[i])->_json2pretty(fs, indent, n + indent, mdp) << ',';
             }
         }
