@@ -298,7 +298,7 @@ size_t fastring::find_first_not_of(const char* s, size_t pos, size_t n) const {
     return npos;
 }
 
-size_t fastring::find_first_not_of(char c, size_t pos) const {
+size_t fastring::find_first_not_of_char(char c, size_t pos) const {
     for (; pos < _size; ++pos) {
         if (_p[pos] != c) return pos;
     }
@@ -327,7 +327,7 @@ size_t fastring::find_last_not_of(const char* s, size_t pos, size_t n) const {
     return npos;
 }
 
-size_t fastring::find_last_not_of(char c, size_t pos) const {
+size_t fastring::find_last_not_of_char(char c, size_t pos) const {
     if (_size > 0) {
         for (size_t i = (pos >= _size ? _size : (pos + 1)); i > 0;) {
             if (_p[--i] != c) return i;
