@@ -146,7 +146,7 @@ bool match(const char* s, size_t n, const char* p, size_t m) {
 
 } // str
 
-fastring& fastring::trim(char c, char d) {
+fastring& fastring::trim_char(char c, char d) {
     if (this->empty()) return *this;
 
     size_t b, e;
@@ -176,7 +176,7 @@ fastring& fastring::trim(char c, char d) {
 
 }
 
-fastring& fastring::trim(const char* x, char d) {
+fastring& fastring::trim_cstr(const char* x, char d) {
     if (this->empty() || !x || !*x) return *this;
 
     const unsigned char* s = (const unsigned char*)x;
@@ -210,7 +210,7 @@ fastring& fastring::trim(const char* x, char d) {
     return *this;
 }
 
-fastring& fastring::trim(size_t n, char d) {
+fastring& fastring::trim_n(size_t n, char d) {
     if (!this->empty()) {
         switch (d) {
           case 'r':
