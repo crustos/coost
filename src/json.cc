@@ -679,7 +679,7 @@ fastream& Json::_json2str(fastream& fs, bool debug, int mdp) const {
         }
 
         if (s != e) fs.append(s, e - s);
-        if (trunc) fs.append(3, '.');
+        if (trunc) fs.append_chars(3, '.');
         fs << '"';
         break;
       }
@@ -734,14 +734,14 @@ fastream& Json::_json2pretty(fastream& fs, int indent, int n, int mdp) const {
         if (_h->p) {
             auto& a = *(xx::Array*)&_h->p;
             for (uint32 i = 0; i < a.size(); i += 2) {
-                fs.append('\n').append(n, ' ');
+                fs.append('\n').append_chars(n, ' ');
                 fs << '"' << (S)a[i] << '"' << ": ";
                 ((Json*)&a[i + 1])->_json2pretty(fs, indent, n + indent, mdp) << ',';
             }
         }
         if (fs.back() == ',') {
             fs.back() = '\n';
-            if (n > indent) fs.append(n - indent, ' ');
+            if (n > indent) fs.append_chars(n - indent, ' ');
         }
         fs << '}';
         break;
@@ -752,13 +752,13 @@ fastream& Json::_json2pretty(fastream& fs, int indent, int n, int mdp) const {
         if (_h->p) {
             auto& a = *(xx::Array*)&_h->p;
             for (uint32 i = 0; i < a.size(); ++i) {
-                fs.append('\n').append(n, ' ');
+                fs.append('\n').append_chars(n, ' ');
                 ((Json*)&a[i])->_json2pretty(fs, indent, n + indent, mdp) << ',';
             }
         }
         if (fs.back() == ',') {
             fs.back() = '\n';
-            if (n > indent) fs.append(n - indent, ' ');
+            if (n > indent) fs.append_chars(n - indent, ' ');
         }
         fs << ']';
         break;
