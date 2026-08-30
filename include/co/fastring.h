@@ -36,10 +36,26 @@ class __coapi fastring : public fast::stream {
 
     ~fastring() = default;
 
+    /* `fastring(n, c)` collides with `fastring(const void*, size_t)`:
+       both take two arguments, and the Crust C++ subset resolves
+       overloads by argument count. A constructor cannot be renamed, so
+       the repeat form becomes a static factory -- available to both
+       builds -- and the constructor itself is C++-only. The buffer form
+       keeps the constructor because it is the more fundamental of the
+       two and has far more callers. */
+    static fastring repeat(size_t n, char c) {
+        fastring s(n + 1);
+        s.resize(n);
+        memset(s.data(), c, n);
+        return s;
+    }
+
+#ifndef CO_CRUST
     fastring(size_t n, char c)
         : fast::stream(n + 1, n) {
         memset(_p, c, n);
     }
+#endif /* CO_CRUST */
 
     fastring(char* p, size_t cap, size_t size)
         : fast::stream(p, cap, size) {
@@ -50,6 +66,22 @@ class __coapi fastring : public fast::stream {
         memcpy(_p, s, n);
     }
 
+    /* The one-argument constructors collide the same way the
+       two-argument ones did. `fastring(size_t cap)` keeps the
+       constructor -- it is what the library itself uses, thirty times,
+       to pre-size a buffer -- and the string forms become static
+       factories available to both builds. */
+    static fastring from_cstr(const char* s) {
+        fastring r(s, strlen(s));
+        return r;
+    }
+
+    static fastring from_stdstr(const std::string& s) {
+        fastring r(s.data(), s.size());
+        return r;
+    }
+
+#ifndef CO_CRUST
     fastring(const char* s)
         : fastring(s, strlen(s)) {
     }
@@ -57,9 +89,14 @@ class __coapi fastring : public fast::stream {
     fastring(const std::string& s)
         : fastring(s.data(), s.size()) {
     }
+#endif /* CO_CRUST */
 
+    /* Initialises the base directly rather than delegating to
+       `fastring(const void*, size_t)`: constructor delegation is not in
+       the Crust C++ subset. This is that constructor's body. */
     fastring(const fastring& s)
-        : fastring(s.data(), s.size()) {
+        : fast::stream(s.size() + !!s.size(), s.size()) {
+        memcpy(_p, s.data(), s.size());
     }
 
     fastring(fastring&& s) noexcept
@@ -82,19 +119,24 @@ class __coapi fastring : public fast::stream {
     }
 
     fastring& operator=(const fastring& s) {
-        return &s != this ? *this->_assign(s.data(), s.size()) : *this;
+        return &s != this ? *this->assign_raw(s.data(), s.size()) : *this;
     }
 
+#ifndef CO_CRUST
+    /* Converting assignments: same arity as the copy assignment above,
+       so both would lower to one `fastring__assign` symbol. Absent under
+       the subset; `assign_mem(s, n)` is the named form callers use. */
     fastring& operator=(const std::string& s) {
-        return *this->_assign(s.data(), s.size());
+        return *this->assign_raw(s.data(), s.size());
     }
 
     fastring& operator=(const char* s) {
-        return this->assign(s, strlen(s));
+        return *this->assign_mem(s, strlen(s));
     }
+#endif /* CO_CRUST */
 
     fastring* assign_mem(const void* s, size_t n) {
-        if (!this->_inside((const char*)s)) return this->_assign(s, n);
+        if (!this->_inside((const char*)s)) return this->assign_raw(s, n);
         assert((const char*)s + n <= _p + _size);
         if (s != _p) memmove(_p, s, n);
         _size = n;
@@ -116,10 +158,13 @@ class __coapi fastring : public fast::stream {
 #endif /* CO_CRUST */
 
 
+#ifndef CO_CRUST
+    /* Forwards to the converting assignments above, which are C++-only. */
     template<typename S>
-    fastring* assign(S&& s) {
+    fastring& assign(S&& s) {
         return this->operator=(std::forward<S>(s));
     }
+#endif /* CO_CRUST */
 
     fastring* append(const void* p, size_t n) {
         return (fastring*) fast::stream::append(p, n);
@@ -173,21 +218,27 @@ class __coapi fastring : public fast::stream {
 
     char pop_back() { return _p[--_size]; }
 
+    /* All four `operator+=` overloads take one argument, so they all
+       lower to one `fastring__augadd` symbol. The fastring operand keeps
+       the operator; the rest are C++-only and route to the named appends,
+       which exist in both builds. */
     fastring& operator+=(const fastring& s) {
-        return this->append(s);
+        return *this->append_str(s);
     }
 
+#ifndef CO_CRUST
     fastring& operator+=(const std::string& s) {
-        return this->append(s);
+        return *this->append_stdstr(s);
     }
 
     fastring& operator+=(const char* s) {
-        return this->append(s);
+        return *this->append_cstr(s);
     }
 
     fastring& operator+=(char c) {
-        return this->append(c);
+        return *this->append_char(c);
     }
+#endif /* CO_CRUST */
 
     fastring* cat() { return this; }
 
@@ -583,16 +634,26 @@ class __coapi fastring : public fast::stream {
         fastring s(*this); s.toupper(); return s;
     }
 
+    /* A returned local is moved out; a constructed temporary in the
+       return expression has nothing to move from, so the caller would
+       get a copy of something already released. Named locals instead. */
     fastring substr(size_t pos) const {
-        return pos < _size ? fastring(_p + pos, _size - pos) : fastring();
+        if (pos < _size) {
+            fastring s(_p + pos, _size - pos);
+            return s;
+        }
+        fastring e;
+        return e;
     }
 
     fastring substr(size_t pos, size_t len) const {
         if (pos < _size) {
             const size_t n = _size - pos;
-            return fastring(_p + pos, len < n ? len : n);
+            fastring s(_p + pos, len < n ? len : n);
+            return s;
         }
-        return fastring();
+        fastring e;
+        return e;
     }
 
     // find char @c
@@ -893,11 +954,21 @@ class __coapi fastring : public fast::stream {
     }
 
     void shrink() {
-        if (_size + 1 < _cap) this->swap(fastring(*this));
+        /* A named local rather than a temporary: a reference parameter
+           is lowered to a pointer, so the argument needs an address and
+           a constructed temporary has none. */
+        if (_size + 1 < _cap) {
+            fastring s(*this);
+            this->swap(s);
+        }
     }
 
   private:
-    fastring* _assign(const void* s, size_t n) {
+    /* Named `assign_raw`, not `_assign`: a method whose name starts
+       with an underscore mangles to `fastring__assign`, which is the
+       symbol `operator=` already lowers to. The two collided in the
+       emitted C. */
+    fastring* assign_raw(const void* s, size_t n) {
         _size = n;
         if (n > 0) {
             this->reserve(n + 1);
@@ -956,11 +1027,11 @@ inline fastring operator+(const char* a, const fastring& b) {
 }
 
 inline bool operator==(const fastring& a, const fastring& b) {
-    return a.compare(b) == 0;
+    return a.compare_str(b) == 0;
 }
 
 inline bool operator==(const fastring& a, const std::string& b) {
-    return a.compare(b) == 0;
+    return a.compare_stdstr(b) == 0;
 }
 
 inline bool operator==(const std::string& a, const fastring& b) {
@@ -968,7 +1039,7 @@ inline bool operator==(const std::string& a, const fastring& b) {
 }
 
 inline bool operator==(const fastring& a, const char* b) {
-    return a.compare(b) == 0;
+    return a.compare_cstr(b) == 0;
 }
 
 inline bool operator==(const char* a, const fastring& b) {
@@ -996,35 +1067,35 @@ inline bool operator!=(const char* a, const fastring& b) {
 }
 
 inline bool operator<(const fastring& a, const fastring& b) {
-    return a.compare(b) < 0;
+    return a.compare_str(b) < 0;
 }
 
 inline bool operator<(const fastring& a, const std::string& b) {
-    return a.compare(b) < 0;
+    return a.compare_stdstr(b) < 0;
 }
 
 inline bool operator<(const std::string& a, const fastring& b) {
-    return b.compare(a) > 0;
+    return b.compare_stdstr(a) > 0;
 }
 
 inline bool operator<(const fastring& a, const char* b) {
-    return a.compare(b) < 0;
+    return a.compare_cstr(b) < 0;
 }
 
 inline bool operator>(const fastring& a, const fastring& b) {
-    return a.compare(b) > 0;
+    return a.compare_str(b) > 0;
 }
 
 inline bool operator>(const fastring& a, const std::string& b) {
-    return a.compare(b) > 0;
+    return a.compare_stdstr(b) > 0;
 }
 
 inline bool operator>(const std::string& a, const fastring& b) {
-    return b.compare(a) < 0;
+    return b.compare_stdstr(a) < 0;
 }
 
 inline bool operator>(const fastring& a, const char* b) {
-    return a.compare(b) > 0;
+    return a.compare_cstr(b) > 0;
 }
 
 inline bool operator<(const char* a, const fastring& b) {
