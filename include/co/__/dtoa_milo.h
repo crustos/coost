@@ -30,147 +30,91 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#ifdef _MSC_VER
-#include <intrin.h>
-#endif
-
 namespace milo {
 
-#if (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)) && defined(__x86_64__)
-namespace gcc_ints
-{
-    __extension__ typedef __int128 int128;
-    __extension__ typedef unsigned __int128 uint128;
-}
-#endif
+#define UINT64_C2(h, l) ((((uint64_t)(h)) << 32) | ((uint64_t)(l)))
 
-#define UINT64_C2(h, l) ((static_cast<uint64_t>(h) << 32) | static_cast<uint64_t>(l))
+static const int kDiySignificandSize = 64;
+static const int kDpSignificandSize = 52;
+static const int kDpExponentBias = 0x3FF + 52;
+static const int kDpMinExponent = -(0x3FF + 52);
+static const uint64_t kDpExponentMask = UINT64_C2(0x7FF00000, 0x00000000);
+static const uint64_t kDpSignificandMask = UINT64_C2(0x000FFFFF, 0xFFFFFFFF);
+static const uint64_t kDpHiddenBit = UINT64_C2(0x00100000, 0x00000000);
 
+/* Plain data plus free functions, so it lowers to C unchanged. */
 struct DiyFp {
-    DiyFp() {}
-
-    DiyFp(uint64_t f, int e) : f(f), e(e) {}
-
-    DiyFp(double d) {
-        union {
-            double d;
-            uint64_t u64;
-        } u = { d };
-
-        int biased_e = (u.u64 & kDpExponentMask) >> kDpSignificandSize;
-        uint64_t significand = (u.u64 & kDpSignificandMask);
-        if (biased_e != 0) {
-            f = significand + kDpHiddenBit;
-            e = biased_e - kDpExponentBias;
-        }
-        else {
-            f = significand;
-            e = kDpMinExponent + 1;
-        }
-    }
-
-    DiyFp operator-(const DiyFp& rhs) const {
-        assert(e == rhs.e);
-        assert(f >= rhs.f);
-        return DiyFp(f - rhs.f, e);
-    }
-
-    DiyFp operator*(const DiyFp& rhs) const {
-      #if defined(_MSC_VER) && defined(_M_AMD64)
-        uint64_t h;
-        uint64_t l = _umul128(f, rhs.f, &h);
-        if (l & (uint64_t(1) << 63)) h++; // rounding
-        return DiyFp(h, e + rhs.e + 64);
-      #elif (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)) && defined(__x86_64__)
-        gcc_ints::uint128 p = static_cast<gcc_ints::uint128>(f) * static_cast<gcc_ints::uint128>(rhs.f);
-        uint64_t h = p >> 64;
-        uint64_t l = static_cast<uint64_t>(p);
-        if (l & (uint64_t(1) << 63)) h++; // rounding
-        return DiyFp(h, e + rhs.e + 64);
-      #else
-        const uint64_t M32 = 0xFFFFFFFF;
-        const uint64_t a = f >> 32;
-        const uint64_t b = f & M32;
-        const uint64_t c = rhs.f >> 32;
-        const uint64_t d = rhs.f & M32;
-        const uint64_t ac = a * c;
-        const uint64_t bc = b * c;
-        const uint64_t ad = a * d;
-        const uint64_t bd = b * d;
-        uint64_t tmp = (bd >> 32) + (ad & M32) + (bc & M32);
-        tmp += 1U << 31;  /// mult_round
-        return DiyFp(ac + (ad >> 32) + (bc >> 32) + (tmp >> 32), e + rhs.e + 64);
-      #endif
-    }
-
-    DiyFp Normalize() const {
-      #if defined(_MSC_VER) && defined(_M_AMD64)
-        unsigned long index;
-        _BitScanReverse64(&index, f);
-        return DiyFp(f << (63 - index), e - (63 - index));
-      #elif defined(__GNUC__)
-        int s = __builtin_clzll(f);
-        return DiyFp(f << s, e - s);
-      #else
-        DiyFp res = *this;
-        while (!(res.f & kDpHiddenBit)) {
-            res.f <<= 1;
-            res.e--;
-        }
-        res.f <<= (kDiySignificandSize - kDpSignificandSize - 1);
-        res.e = res.e - (kDiySignificandSize - kDpSignificandSize - 1);
-        return res;
-      #endif
-    }
-
-    DiyFp NormalizeBoundary() const {
-      #if defined(_MSC_VER) && defined(_M_AMD64)
-        unsigned long index;
-        _BitScanReverse64(&index, f);
-        return DiyFp (f << (63 - index), e - (63 - index));
-      #else
-        DiyFp res = *this;
-        while (!(res.f & (kDpHiddenBit << 1))) {
-            res.f <<= 1;
-            res.e--;
-        }
-        res.f <<= (kDiySignificandSize - kDpSignificandSize - 2);
-        res.e = res.e - (kDiySignificandSize - kDpSignificandSize - 2);
-        return res;
-      #endif
-    }
-
-    void NormalizedBoundaries(DiyFp* minus, DiyFp* plus) const {
-        DiyFp pl = DiyFp((f << 1) + 1, e - 1).NormalizeBoundary();
-        /* An `if` rather than `?:`: a branch of a conditional may not
-           be evaluated, so a temporary built there cannot be hoisted to a
-           statement of its own, which is what the Crust C++ subset needs
-           to construct it. */
-        DiyFp mi;
-        if (f == kDpHiddenBit) {
-            mi = DiyFp((f << 2) - 1, e - 2);
-        } else {
-            mi = DiyFp((f << 1) - 1, e - 1);
-        }
-        mi.f <<= mi.e - pl.e;
-        mi.e = pl.e;
-        *plus = pl;
-        *minus = mi;
-    }
-
-    static const int kDiySignificandSize = 64;
-    static const int kDpSignificandSize = 52;
-    static const int kDpExponentBias = 0x3FF + kDpSignificandSize;
-    static const int kDpMinExponent = -kDpExponentBias;
-    static const uint64_t kDpExponentMask = UINT64_C2(0x7FF00000, 0x00000000);
-    static const uint64_t kDpSignificandMask = UINT64_C2(0x000FFFFF, 0xFFFFFFFF);
-    static const uint64_t kDpHiddenBit = UINT64_C2(0x00100000, 0x00000000);
-
     uint64_t f;
     int e;
 };
 
-inline DiyFp GetCachedPower(int e, int* K) {
+static inline DiyFp diyfp(uint64_t f, int e) {
+    DiyFp r;
+    r.f = f;
+    r.e = e;
+    return r;
+}
+
+static inline DiyFp diyfp_from_double(double d) {
+    uint64_t u;
+    memcpy(&u, &d, sizeof(u));
+    const int biased_e = (int)((u & kDpExponentMask) >> kDpSignificandSize);
+    const uint64_t significand = u & kDpSignificandMask;
+    if (biased_e != 0) return diyfp(significand + kDpHiddenBit, biased_e - kDpExponentBias);
+    return diyfp(significand, kDpMinExponent + 1);
+}
+
+static inline DiyFp diyfp_sub(DiyFp a, DiyFp b) {
+    assert(a.e == b.e);
+    assert(a.f >= b.f);
+    return diyfp(a.f - b.f, a.e);
+}
+
+static inline DiyFp diyfp_mul(DiyFp x, DiyFp y) {
+    const uint64_t M32 = 0xFFFFFFFF;
+    const uint64_t a = x.f >> 32;
+    const uint64_t b = x.f & M32;
+    const uint64_t c = y.f >> 32;
+    const uint64_t d = y.f & M32;
+    const uint64_t ac = a * c;
+    const uint64_t bc = b * c;
+    const uint64_t ad = a * d;
+    const uint64_t bd = b * d;
+    uint64_t tmp = (bd >> 32) + (ad & M32) + (bc & M32);
+    tmp += 1U << 31;  // mult_round
+    return diyfp(ac + (ad >> 32) + (bc >> 32) + (tmp >> 32), x.e + y.e + 64);
+}
+
+static inline DiyFp diyfp_normalize(DiyFp x) {
+    const int s = __builtin_clzll(x.f);
+    return diyfp(x.f << s, x.e - s);
+}
+
+static inline DiyFp diyfp_normalize_boundary(DiyFp x) {
+    while (!(x.f & (kDpHiddenBit << 1))) {
+        x.f <<= 1;
+        x.e--;
+    }
+    x.f <<= (kDiySignificandSize - kDpSignificandSize - 2);
+    x.e = x.e - (kDiySignificandSize - kDpSignificandSize - 2);
+    return x;
+}
+
+static inline void diyfp_normalized_boundaries(DiyFp v, DiyFp* minus, DiyFp* plus) {
+    const DiyFp pl = diyfp_normalize_boundary(diyfp((v.f << 1) + 1, v.e - 1));
+    DiyFp mi;
+    if (v.f == kDpHiddenBit) {
+        mi = diyfp((v.f << 2) - 1, v.e - 2);
+    } else {
+        mi = diyfp((v.f << 1) - 1, v.e - 1);
+    }
+    mi.f <<= mi.e - pl.e;
+    mi.e = pl.e;
+    *plus = pl;
+    *minus = mi;
+}
+
+static inline DiyFp GetCachedPower(int e, int* K) {
     // 10^-348, 10^-340, ..., 10^340
     static const uint64_t kCachedPowers_F[] = {
         UINT64_C2(0xfa8fd5a0, 0x081c0288), UINT64_C2(0xbaaee17f, 0xa23ebf76),
@@ -231,19 +175,19 @@ inline DiyFp GetCachedPower(int e, int* K) {
           907,   933,   960,   986,  1013,  1039,  1066
     };
 
-    //int k = static_cast<int>(ceil((-61 - e) * 0.30102999566398114)) + 374;
+    //int k = (int)(ceil((-61 - e) * 0.30102999566398114)) + 374;
     double dk = (-61 - e) * 0.30102999566398114 + 347;    // dk must be positive, so can do ceiling in positive
-    int k = static_cast<int>(dk);
+    int k = (int)(dk);
     if (dk - k > 0.0) k++;
 
-    unsigned index = static_cast<unsigned>((k >> 3) + 1);
-    *K = -(-348 + static_cast<int>(index << 3));    // decimal exponent no need lookup table
+    unsigned index = (unsigned)((k >> 3) + 1);
+    *K = -(-348 + (int)(index << 3));    // decimal exponent no need lookup table
 
     assert(index < sizeof(kCachedPowers_F) / sizeof(kCachedPowers_F[0]));
-    return DiyFp(kCachedPowers_F[index], kCachedPowers_E[index]);
+    return diyfp(kCachedPowers_F[index], kCachedPowers_E[index]);
 }
 
-inline void GrisuRound(char* buffer, int len, uint64_t delta, uint64_t rest, uint64_t ten_kappa, uint64_t wp_w) {
+static inline void GrisuRound(char* buffer, int len, uint64_t delta, uint64_t rest, uint64_t ten_kappa, uint64_t wp_w) {
     while (rest < wp_w && delta - rest >= ten_kappa &&
            (rest + ten_kappa < wp_w ||  /// closer
             wp_w - rest > rest + ten_kappa - wp_w)) {
@@ -252,7 +196,7 @@ inline void GrisuRound(char* buffer, int len, uint64_t delta, uint64_t rest, uin
     }
 }
 
-inline unsigned CountDecimalDigit32(uint32_t n) {
+static inline unsigned CountDecimalDigit32(uint32_t n) {
     // Simple pure C++ implementation was faster than __builtin_clz version in this situation.
     if (n < 10) return 1;
     if (n < 100) return 2;
@@ -266,13 +210,13 @@ inline unsigned CountDecimalDigit32(uint32_t n) {
     return 10;
 }
 
-inline void DigitGen(const DiyFp& W, const DiyFp& Mp, uint64_t delta, char* buffer, int* len, int* K) {
+static inline void DigitGen(DiyFp W, DiyFp Mp, uint64_t delta, char* buffer, int* len, int* K) {
     static const uint32_t kPow10[] = { 1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000 };
-    const DiyFp one(uint64_t(1) << -Mp.e, Mp.e);
-    const DiyFp wp_w = Mp - W;
-    uint32_t p1 = static_cast<uint32_t>(Mp.f >> -one.e);
+    const DiyFp one = diyfp(((uint64_t)1) << -Mp.e, Mp.e);
+    const DiyFp wp_w = diyfp_sub(Mp, W);
+    uint32_t p1 = (uint32_t)(Mp.f >> -one.e);
     uint64_t p2 = Mp.f & (one.f - 1);
-    int kappa = static_cast<int>(CountDecimalDigit32(p1));
+    int kappa = (int)(CountDecimalDigit32(p1));
     *len = 0;
 
     while (kappa > 0) {
@@ -289,21 +233,15 @@ inline void DigitGen(const DiyFp& W, const DiyFp& Mp, uint64_t delta, char* buff
           case  2: d = p1 /         10; p1 %=         10; break;
           case  1: d = p1;              p1 =           0; break;
           default:
-          #if defined(_MSC_VER)
-            __assume(0);
-          #elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
-            __builtin_unreachable();
-          #else
             d = 0;
-          #endif
         }
 
-        if (d || *len) buffer[(*len)++] = '0' + static_cast<char>(d);
+        if (d || *len) buffer[(*len)++] = '0' + (char)(d);
         kappa--;
-        uint64_t tmp = (static_cast<uint64_t>(p1) << -one.e) + p2;
+        uint64_t tmp = ((uint64_t)(p1) << -one.e) + p2;
         if (tmp <= delta) {
             *K += kappa;
-            GrisuRound(buffer, *len, delta, tmp, static_cast<uint64_t>(kPow10[kappa]) << -one.e, wp_w.f);
+            GrisuRound(buffer, *len, delta, tmp, (uint64_t)(kPow10[kappa]) << -one.e, wp_w.f);
             return;
         }
     }
@@ -312,7 +250,7 @@ inline void DigitGen(const DiyFp& W, const DiyFp& Mp, uint64_t delta, char* buff
     for (;;) {
         p2 *= 10;
         delta *= 10;
-        char d = static_cast<char>(p2 >> -one.e);
+        char d = (char)(p2 >> -one.e);
         if (d || *len) buffer[(*len)++] = '0' + d;
         p2 &= one.f - 1;
         kappa--;
@@ -325,21 +263,21 @@ inline void DigitGen(const DiyFp& W, const DiyFp& Mp, uint64_t delta, char* buff
     }
 }
 
-inline void Grisu2(double value, char* buffer, int* length, int* K) {
-    const DiyFp v(value);
+static inline void Grisu2(double value, char* buffer, int* length, int* K) {
+    const DiyFp v = diyfp_from_double(value);
     DiyFp w_m, w_p;
-    v.NormalizedBoundaries(&w_m, &w_p);
+    diyfp_normalized_boundaries(v, &w_m, &w_p);
 
     const DiyFp c_mk = GetCachedPower(w_p.e, K);
-    const DiyFp W = v.Normalize() * c_mk;
-    DiyFp Wp = w_p * c_mk;
-    DiyFp Wm = w_m * c_mk;
+    const DiyFp W = diyfp_mul(diyfp_normalize(v), c_mk);
+    DiyFp Wp = diyfp_mul(w_p, c_mk);
+    DiyFp Wm = diyfp_mul(w_m, c_mk);
     Wm.f++;
     Wp.f--;
     DigitGen(W, Wp, Wp.f - Wm.f, buffer, length, K);
 }
 
-inline const char* GetDigitsLut() {
+static inline const char* GetDigitsLut() {
     static const char cDigitsLut[200] = {
         '0', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '0', '6', '0', '7', '0', '8', '0', '9',
         '1', '0', '1', '1', '1', '2', '1', '3', '1', '4', '1', '5', '1', '6', '1', '7', '1', '8', '1', '9',
@@ -355,14 +293,14 @@ inline const char* GetDigitsLut() {
     return cDigitsLut;
 }
 
-inline char* WriteExponent(int K, char* buffer) {
+static inline char* WriteExponent(int K, char* buffer) {
     if (K < 0) {
         *buffer++ = '-';
         K = -K;
     }
 
     if (K >= 100) {
-        *buffer++ = '0' + static_cast<char>(K / 100);
+        *buffer++ = '0' + (char)(K / 100);
         K %= 100;
         const char* d = GetDigitsLut() + K * 2;
         *buffer++ = d[0];
@@ -374,13 +312,13 @@ inline char* WriteExponent(int K, char* buffer) {
         *buffer++ = d[1];
     }
     else
-        *buffer++ = '0' + static_cast<char>(K);
+        *buffer++ = '0' + (char)(K);
 
     *buffer = '\0';
     return buffer;
 }
 
-inline char* Prettify(char* buffer, int length, int k, int maxDecimalPlaces) {
+static inline char* Prettify(char* buffer, int length, int k, int maxDecimalPlaces) {
     const int kk = length + k;  // 10^(kk-1) <= v < 10^kk
 
     if (0 <= k && kk <= 21) {
@@ -392,7 +330,7 @@ inline char* Prettify(char* buffer, int length, int k, int maxDecimalPlaces) {
     }
     else if (0 < kk && kk <= 21) {
         // 1234e-2 -> 12.34
-        memmove(&buffer[kk + 1], &buffer[kk], static_cast<size_t>(length - kk));
+        memmove(&buffer[kk + 1], &buffer[kk], (size_t)(length - kk));
         buffer[kk] = '.';
         if (0 > k + maxDecimalPlaces) {
             // When maxDecimalPlaces = 2, 1.2345 -> 1.23, 1.102 -> 1.1
@@ -408,7 +346,7 @@ inline char* Prettify(char* buffer, int length, int k, int maxDecimalPlaces) {
     else if (kk == 0 || (-3 < kk && kk < 0 && -maxDecimalPlaces <= k)) {
         // 1234e-6 -> 0.001234
         const int offset = 2 - kk;
-        memmove(&buffer[offset], &buffer[0], static_cast<size_t>(length));
+        memmove(&buffer[offset], &buffer[0], (size_t)(length));
         buffer[0] = '0';
         buffer[1] = '.';
         for (int i = 2; i < offset; i++) buffer[i] = '0';
@@ -440,7 +378,7 @@ inline char* Prettify(char* buffer, int length, int k, int maxDecimalPlaces) {
     }
 }
 
-inline int dtoa(double value, char* buffer, int maxDecimalPlaces=324) {
+static inline int dtoa(double value, char* buffer, int maxDecimalPlaces) {
     // Not handling NaN and inf
     //assert(!isnan(value));
     //assert(!isinf(value));
@@ -461,7 +399,7 @@ inline int dtoa(double value, char* buffer, int maxDecimalPlaces=324) {
         }
         int length, K;
         Grisu2(value, buffer, &length, &K);
-        return static_cast<int>(Prettify(buffer, length, K, maxDecimalPlaces) - p);
+        return (int)(Prettify(buffer, length, K, maxDecimalPlaces) - p);
     }
 }
 
