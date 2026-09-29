@@ -2,19 +2,17 @@
 
 namespace co {
 
-void* alloc(size_t n) {
-    return ::malloc(n);
-}
-
-void* alloc_aligned(size_t n, size_t align) {
-    void* p = 0;
-    if (align < sizeof(void*)) align = sizeof(void*);
-    if (::posix_memalign(&p, align, n) != 0) return 0;
+static void* checked(void* p) {
+    if (p == 0) ::abort();
     return p;
 }
 
+void* alloc(size_t n) {
+    return checked(::malloc(n ? n : 1));
+}
+
 void* zalloc(size_t n) {
-    return ::calloc(1, n);
+    return checked(::calloc(1, n ? n : 1));
 }
 
 void free(void* p, size_t n) {
@@ -24,13 +22,13 @@ void free(void* p, size_t n) {
 
 void* realloc(void* p, size_t o, size_t n) {
     (void)o;
-    return ::realloc(p, n);
+    return checked(::realloc(p, n ? n : 1));
 }
 
 char* strdup(const char* s) {
     const size_t n = ::strlen(s) + 1;
-    char* const p = (char*) ::malloc(n);
-    if (p) ::memcpy(p, s, n);
+    char* const p = (char*) alloc(n);
+    ::memcpy(p, s, n);
     return p;
 }
 
