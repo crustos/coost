@@ -55,9 +55,9 @@ static void test_find() {
     CHECK(s.rfind_cstr("hello") == 13);
     CHECK(s.rfind_char('l') == 16);
     CHECK(s.ifind_cstr("WORLD", 0) == 6);
-    CHECK(s.find_cstr("xyz") == (size_t)-1);
+    CHECK(s.find_cstr("xyz") == fastring::npos);
     CHECK(s.find_first_of(",w", 0) == 6);
-    CHECK(s.find_last_not_of("ol", (size_t)-1) == 14);
+    CHECK(s.find_last_not_of("ol", fastring::npos) == 14);
     CHECK(s.starts_with_cstr("hell"));
     CHECK(s.ends_with_cstr("llo"));
     CHECK(s.contains_cstr("world"));
