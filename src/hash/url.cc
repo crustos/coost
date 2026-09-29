@@ -1,19 +1,7 @@
 #include "co/hash/url.h"
 
-#if 0
-char* init_url_encode_table() {
-    static char tb[256] = { 0 };
-    const unsigned char* p = (const unsigned char*) "-_.~!*'();:@&=+$,/?#[]";
-    const size_t n = strlen((const char*)p);
-    for (size_t i = 0; i < n; ++i) tb[p[i]] = 1;
-    for (int i = 'A'; i <= 'Z'; ++i) tb[i] = 1;
-    for (int i = 'a'; i <= 'z'; ++i) tb[i] = 1;
-    for (int i = '0'; i <= '9'; ++i) tb[i] = 1;
-    return tb;
-}
-#endif
 
-static char g_tb[256] = {
+static const char url_tb[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -32,11 +20,11 @@ static char g_tb[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
-inline bool unencoded(uint8 c) {
-    return g_tb[c];
+static inline bool url_unencoded(uint8 c) {
+    return url_tb[c];
 }
 
-inline int hex2int(char c) {
+static inline int url_hex2int(char c) {
     if ('0' <= c && c <= '9') return c - '0';
     if ('A' <= c && c <= 'F') return c - 'A' + 10;
     if ('a' <= c && c <= 'f') return c - 'a' + 10;
@@ -50,13 +38,13 @@ fastring url_encode(const void* s, size_t n) {
     char c;
     for (size_t i = 0; i < n; ++i) {
         c = p[i];
-        if (unencoded(c)) {
-            dst.append(c);
+        if (url_unencoded((uint8)c)) {
+            dst.append_char(c);
             continue;
         }
         dst.append_char('%');
-        dst.append("0123456789ABCDEF"[static_cast<uint8>(c) >> 4]);
-        dst.append("0123456789ABCDEF"[static_cast<uint8>(c) & 0x0F]);
+        dst.append_char("0123456789ABCDEF"[(uint8)c >> 4]);
+        dst.append_char("0123456789ABCDEF"[(uint8)c & 0x0F]);
     }
 
     return dst;
@@ -70,16 +58,16 @@ fastring url_decode(const void* s, size_t n) {
     for (size_t i = 0; i < n; ++i) {
         c = p[i];
         if (c != '%') {
-            dst.append(c);
+            dst.append_char(c);
             continue;
         }
 
-        if (i + 2 >= n) return fastring();       // invalid encode
-        const int h4 = hex2int(p[i + 1]);
-        const int l4 = hex2int(p[i + 2]);
-        if (h4 < 0 || l4 < 0) return fastring(); // invalid encode
+        if (i + 2 >= n) { fastring e; return e; }  // invalid encode
+        const int h4 = url_hex2int(p[i + 1]);
+        const int l4 = url_hex2int(p[i + 2]);
+        if (h4 < 0 || l4 < 0) { fastring e; return e; }  // invalid encode
 
-        dst.append((char)((h4 << 4) | l4));
+        dst.append_char((char)((h4 << 4) | l4));
         i += 2;
     }
 

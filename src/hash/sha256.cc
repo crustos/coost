@@ -28,7 +28,7 @@ void sha256_init(sha256_ctx_t* p) {
 #define s1(x) (rotrFixed(x,17) ^ rotrFixed(x,19) ^ (x >> 10))
 
 #define blk0(i) (W[i] = data[i])
-#define blk2(i) (W[i&15] += s1(W[(i-2)&15]) + W[(i-7)&15] + s0(W[(i-15)&15]))
+#define blk2(i) (W[(i)&15] += s1(W[((i)-2)&15]) + W[((i)-7)&15] + s0(W[((i)-15)&15]))
 
 #define Ch(x,y,z) (z^(x&(y^z)))
 #define Maj(x,y,z) ((x&y)|(z&(x|y)))
@@ -67,7 +67,7 @@ static const uint32 K[64] = {
     0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 };
 
-inline void sha256_transform(uint32* state, const uint32* data) {
+static inline void sha256_transform(uint32* state, const uint32* data) {
     uint32 W[16];
     unsigned j;
     uint32 T[8];
@@ -82,8 +82,24 @@ inline void sha256_transform(uint32* state, const uint32* data) {
 #undef S1
 #undef s0
 #undef s1
+#undef rotlFixed
+#undef rotrFixed
+#undef blk0
+#undef blk2
+#undef Ch
+#undef Maj
+#undef a
+#undef b
+#undef c
+#undef d
+#undef e
+#undef f
+#undef g
+#undef h
+#undef R
+#undef RX_8
 
-inline void sha256_write_byte_block(sha256_ctx_t* p) {
+static inline void sha256_write_byte_block(sha256_ctx_t* p) {
     uint32 data32[16];
     unsigned i;
     for (i = 0; i < 16; i++)
@@ -134,9 +150,9 @@ void sha256_final(sha256_ctx_t* p, uint8 res[32]) {
     }
 }
 
-void sha256sum(const void* s, size_t n, char res[64]) {
+void sha256sum_to(const void* s, size_t n, char res[64]) {
     uint8 buf[32];
-    sha256digest(s, n, (char*)buf);
+    sha256digest_to(s, n, (char*)buf);
 
     char* x = res;
     for (int i = 0; i < 32; i += 4) {

@@ -294,9 +294,9 @@ void md5_final(md5_ctx_t* ctx, uint8 res[16]) {
     memset(ctx, 0, sizeof(*ctx));
 }
 
-void md5sum(const void* s, size_t n, char res[32]) {
+void md5sum_to(const void* s, size_t n, char res[32]) {
     uint8 buf[16];
-    md5digest(s, n, (char*)buf);
+    md5digest_to(s, n, (char*)buf);
 
     char* x = res;
     for (int i = 0; i < 16; i += 4) {
