@@ -2,9 +2,11 @@
 
 // Allocation helpers. Thin wrappers over the C allocator; the sized
 // signatures are kept so callers stay compatible with upstream coost.
+// Out of memory aborts: nothing in coost can recover from it, and callers
+// then need no null checks (and no <assert.h>, which crust's C compiler
+// does not provide).
 
 #include "def.h"
-#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,9 +14,6 @@ namespace co {
 
 // alloc @size bytes
 void* alloc(size_t size);
-
-// alloc @size bytes, @align byte aligned (align must be a power of 2)
-void* alloc_aligned(size_t size, size_t align);
 
 // alloc @size bytes, and zero-clear the memory
 void* zalloc(size_t size);

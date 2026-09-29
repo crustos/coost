@@ -11,7 +11,6 @@
 #include "def.h"
 #include "mem.h"
 #include "fast.h"
-#include <assert.h>
 #include <string.h>
 
 namespace str {
@@ -135,7 +134,6 @@ class fastring {
     void reserve(size_t n) {
         if (_cap < n) {
             _p = (char*) co::realloc(_p, _cap, n);
-            assert(_p);
             _cap = n;
         }
     }
@@ -156,7 +154,6 @@ class fastring {
             const size_t cap = _cap;
             _cap += (_cap >> 1) + n + 1;
             _p = (char*) co::realloc(_p, cap, _cap);
-            assert(_p);
         }
     }
 
