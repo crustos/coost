@@ -24,7 +24,6 @@
 
 #pragma once
 
-#include <assert.h>
 #include <math.h>
 #include <string.h>
 #include <stdint.h>
@@ -65,8 +64,6 @@ static inline DiyFp diyfp_from_double(double d) {
 }
 
 static inline DiyFp diyfp_sub(DiyFp a, DiyFp b) {
-    assert(a.e == b.e);
-    assert(a.f >= b.f);
     return diyfp(a.f - b.f, a.e);
 }
 
@@ -183,7 +180,6 @@ static inline DiyFp GetCachedPower(int e, int* K) {
     unsigned index = (unsigned)((k >> 3) + 1);
     *K = -(-348 + (int)(index << 3));    // decimal exponent no need lookup table
 
-    assert(index < sizeof(kCachedPowers_F) / sizeof(kCachedPowers_F[0]));
     return diyfp(kCachedPowers_F[index], kCachedPowers_E[index]);
 }
 
@@ -380,9 +376,6 @@ static inline char* Prettify(char* buffer, int length, int k, int maxDecimalPlac
 
 static inline int dtoa(double value, char* buffer, int maxDecimalPlaces) {
     // Not handling NaN and inf
-    //assert(!isnan(value));
-    //assert(!isinf(value));
-    assert(maxDecimalPlaces > 0);
 
     if (value == 0) {
         buffer[0] = '0';
