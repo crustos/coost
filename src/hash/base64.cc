@@ -1,9 +1,5 @@
 #include "co/hash/base64.h"
 
-/* The padding character. Spelled numerically: cpprust mangles a
-   `== '='` comparison (it reads the quoted = as an assignment). */
-#define B64_PAD 0x3d
-
 static const char* b64_entab = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 fastring base64_encode(const void* p, size_t n) {
@@ -106,8 +102,8 @@ static long b64_decode_raw(const void* p, size_t n, char* out) {
         if (unlikely(m < 0)) return -1;
         *x++ = (char) ((m & 0x00ff0000) >> 16);
 
-        if (s[2] == B64_PAD) {
-            if (s[3] == B64_PAD) break;
+        if (s[2] == '=') {
+            if (s[3] == '=') break;
             return -1;
         }
 
@@ -115,7 +111,7 @@ static long b64_decode_raw(const void* p, size_t n, char* out) {
         if (unlikely(m < 0)) return -1;
         *x++ = (char) ((m & 0x0000ff00) >> 8);
 
-        if (s[3] != B64_PAD) {
+        if (s[3] != '=') {
             m |= b64_detab[s[3]];
             if (unlikely(m < 0)) return -1;
             *x++ = (char) (m & 0x000000ff);
@@ -133,4 +129,3 @@ fastring base64_decode(const void* p, size_t n) {
     return v;
 }
 
-#undef B64_PAD
