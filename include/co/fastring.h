@@ -72,14 +72,12 @@ class fastring {
         this->reset();
     }
 
-    // self-assignment is detected through the buffer pointer: two
-    // distinct strings never share one (and two empty ones need no work)
     void operator=(const fastring& s) {
-        if (s._p != _p) this->assign(s._p, s._size);
+        if (&s != this) this->assign(s._p, s._size);
     }
 
     void operator=(fastring&& s) {
-        if (s._p != _p) {
+        if (&s != this) {
             this->reset();
             _cap = s._cap;
             _size = s._size;

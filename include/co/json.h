@@ -56,7 +56,7 @@ class Json {
     ~Json() { this->reset(); }
 
     void operator=(Json&& v) {
-        if (v._h != _h) {
+        if (&v != this) {
             this->reset();
             _h = v._h;
             v._h = 0;
