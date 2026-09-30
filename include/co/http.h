@@ -1,382 +1,271 @@
 #pragma once
 
+// HTTP/1.1 client and server, blocking with timeouts. Plain HTTP only.
+//
+// The protocol (parsing, chunked decoding, reading and writing whole
+// messages) is compiled as C in co/c/http.h; these classes own the sockets
+// and buffers and present them.
+//
+// The server serves many connections at once from one thread: a poll()
+// loop in co/c/http_server.h. Handlers run on that loop and must not block.
+
+#include "def.h"
 #include "fastring.h"
-#include <functional>
+#include "tcp.h"
+#include "c/http.h"
+#include "c/http_server.h"
+#include <string.h>
 
 namespace http {
 
-/**
- * ===========================================================================
- * HTTP client 
- *   - libcurl & zlib required. 
- *   - openssl required for https. 
- * ===========================================================================
- */
-
-struct curl_ctx_t;
-
-/**
- * http client for coroutine programming
- *   - NOTE: It will not url-encode the url passed in. Call url_encode() in 
- *     co/hash/url.h to encode the url if necessary.
- */
-class __coapi Client {
+// A request as the server received it; valid during the handler call.
+class Req {
   public:
-    /**
-     * initialize a http client with a server url
-     *   - If a protocol is not present in the url, http will be used by default.
-     *   - If a port is not present in the url, the default port 80 or 443 will be used.
-     *   - If the url contains both an ipv6 address and a port, the ip must be enclosed
-     *     with [] to distinguish it from the port.
-     *   - eg.
-     *     "github.com"   "https://github.com"   "http://127.0.0.1:7777"   "http://[::1]:8888"
-     *
-     * @param serv_url  server url in a form of "protocol://host:port".
-     *                  - protocol:  http or https.
-     *                  - host:      a domain name, or an ipv4 or ipv6 address.
-     *                  - port:      server port.
-     */
-    explicit Client(const char* serv_url);
-    ~Client();
+    Req() { _m = 0; }
+    Req(const Req& r) = delete;
+    void operator=(const Req& r) = delete;
 
-    Client(const Client&) = delete;
-    void operator=(const Client&) = delete;
-
-    /**
-     * add a HTTP header
-     *   - The header will be set into an easy curl handle, which will be reused
-     *     in later HTTP requests.
-     *
-     * @param key  a non-empty string.
-     * @param val  the value, an empty string is allowed.
-     */
-    void add_header(const char* key, const char* val);
-
-    /**
-     * add a HTTP header with an integer value
-     *   - add_header("Content-Length", 777);
-     *
-     * @param key  a non-empty string.
-     * @param val  an integer value.
-     */
-    void add_header(const char* key, int val);
-
-    /**
-     * remove a HTTP header
-     *   - A header will be reused by all the following requests by default. The
-     *     user can use this method to remove a header, so it will not appear in
-     *     later HTTP requests.
-     *
-     * @param key  a non-empty string.
-     */
-    void remove_header(const char* key);
-
-    /**
-     * perform a HTTP GET request
-     *
-     * @param url  This url will appear in the request line, it MUST begins with '/'.
-     */
-    void get(const char* url);
-
-    /**
-     * perform a HTTP HEAD request
-     *
-     * @param url  This url will appear in the request line, it MUST begins with '/'.
-     */
-    void head(const char* url);
-
-    /**
-     * perform a HTTP POST request
-     *
-     * @param url  This url will appear in the request line, it MUST begins with '/'.
-     */
-    void post(const char* url, const char* data, size_t size);
-
-    void post(const char* url, const char* s) {
-        this->post(url, s, strlen(s));
+    fastring method() const { return fastring(_m->head.p, _m->h.method_len); }
+    bool method_is(const char* m) const {
+        return strlen(m) == _m->h.method_len && memcmp(_m->head.p, m, _m->h.method_len) == 0;
     }
 
-    /**
-     * perform a HTTP PUT request
-     *   - upload a file to the server
-     *
-     * @param url   This url will appear in the request line, it MUST begins with '/'.
-     * @param path  Path of the file to be uploaded.
-     */
-    void put(const char* url, const char* path);
+    // the request target as sent, e.g. "/a/b?x=1"
+    fastring url() const { return fastring(_m->head.p + _m->h.target_off, _m->h.target_len); }
 
-    /**
-     * perform a HTTP DELETE request
-     *
-     * @param url  This url will appear in the request line, it MUST begins with '/'.
-     */
-    void del(const char* url, const char* data, size_t size);
-
-    void del(const char* url, const char* s) {
-        this->del(url, s, strlen(s));
+    // the target up to '?', and what follows it ("" if nothing)
+    fastring path() const {
+        const char* t = _m->head.p + _m->h.target_off;
+        const char* q = (const char*)memchr(t, '?', _m->h.target_len);
+        if (q == 0) return fastring(t, _m->h.target_len);
+        return fastring(t, (size_t)(q - t));
+    }
+    fastring query() const {
+        const char* t = _m->head.p + _m->h.target_off;
+        const char* q = (const char*)memchr(t, '?', _m->h.target_len);
+        if (q == 0) return fastring();
+        return fastring(q + 1, _m->h.target_len - (size_t)(q + 1 - t));
     }
 
-    /**
-     * perform a HTTP DELETE request without a body
-     *
-     * @param url  This url will appear in the request line, it MUST begins with '/'.
-     */
-    void del(const char* url) {
-        return this->del(url, "", 0);
+    // 0 for HTTP/1.0, 1 for HTTP/1.1
+    int version() const { return _m->h.minor; }
+
+    // the first header named @name (case-insensitive), "" if absent
+    fastring header(const char* name) const {
+        size_t n = 0;
+        const char* v = co_http_msg_header(_m, name, &n);
+        if (v == 0) return fastring();
+        return fastring(v, n);
+    }
+    bool has_header(const char* name) const {
+        size_t n = 0;
+        return co_http_msg_header(_m, name, &n) != 0;
     }
 
-    /**
-     * set http url
-     *
-     * @param url  This url will appear in the request line, it MUST begins with '/'.
-     */
-    void set_url(const char* url);
+    // the decoded body, NUL-terminated
+    const char* body() const { return _m->body.p ? _m->body.p : ""; }
+    size_t body_size() const { return _m->body.len; }
 
-    // get curl easy handle (CURL*) owned by this client
-    void* easy_handle() const;
-
-    /**
-     * perform a HTTP request
-     *   - This method is designed for HTTP request other than GET, HEAD, POST,
-     *     PUT, DELETE.
-     *   - The user may call set_url() to set a url, and set other options with
-     *     the easy handle, then call this method to perform the request.
-     */
-    void perform();
-
-    /**
-     * get response code of the current HTTP request
-     *
-     * @return  a non-zero value like 200, 404, if a response was recieved from the
-     *          server, otherwise 0 will be returned and strerror() can be used to
-     *          get the error message.
-     */
-    int response_code() const;
-
-    // the same as response_code()
-    int status() const { return this->response_code(); }
-
-    // get error message of the current request
-    const char* strerror() const;
-
-    /**
-     * get value of a HTTP header in the current response
-     *   - NOTE: Contents of the header will be cleared when the next request was performed.
-     *   - The result will be an empty string if the header is not found.
-     *
-     * @param key  a null terminated string, non-case sensitive.
-     *
-     * @return     a pointer to a null-terminated string.
-     */
-    const char* header(const char* key);
-
-    /**
-     * get the entire header part of the current HTTP response
-     *   - NOTE: Contents of the header will be cleared when the next request was performed.
-     *
-     * @return  a pointer to a null-terminated string, which contains the response start line.
-     */
-    const fastring& header() const;
-
-    /**
-     * get body of the current HTTP response
-     *   - NOTE: Contents of the body will be cleared when the next request was performed.
-     */
-    const fastring& body() const;
-
-    // Close the connection.
-    // Once it is called, the client can't be used until you reset the server url.
-    void close();
-
-    // reset server url
-    void reset(const char* serv_url);
-
-  private:
-    void append_header(const char* s);
-    const char* make_url(const char* url);
-
-  private:
-    curl_ctx_t* _ctx;
+    // used by the server
+    co_http_msg* _m;
 };
 
-
-/**
- * ===========================================================================
- * HTTP server 
- *   - openssl required for https. 
- *   - only support HTTP/1.0 & HTTP/1.1 at this moment. 
- * ===========================================================================
- */
-
-enum Version {
-    kHTTP10, kHTTP11,
-};
-
-enum Method {
-    kGet, kHead, kPost, kPut, kDelete, kOptions,
-};
-
-struct http_req_t;
-struct http_res_t;
-
-class __coapi Req {
+// The response a handler fills in. Status defaults to 200.
+class Res {
   public:
-    Req() : _p(0) {}
-    ~Req();
+    Res() { _status = 200; }
 
-    Version version()        const { return (Version) ((uint32*)_p)[1]; }
-    Method method()          const { return (Method)  ((uint32*)_p)[0]; }
-    bool is_method_get()     const { return this->method() == kGet; }
-    bool is_method_head()    const { return this->method() == kHead; }
-    bool is_method_post()    const { return this->method() == kPost; }
-    bool is_method_put()     const { return this->method() == kPut; }
-    bool is_method_delete()  const { return this->method() == kDelete; }
-    bool is_method_options() const { return this->method() == kOptions; }
+    void set_status(int s) { _status = s; }
+    int status() const { return _status; }
 
-    const fastring& url()    const { return *(fastring*)((uint32*)_p + 4); }
-
-    // return a null-terminated value of the header
-    const char* header(const char* key) const;
-
-    // return a pointer to the body, which may be not null-terminated, call 
-    // body_size() to get the length.
-    const char* body() const;
-
-    // get length of the body
-    size_t body_size() const { return ((uint32*)_p)[3]; }
-
-  private:
-    http_req_t* _p;
-};
-
-class __coapi Res {
-  public:
-    Res() : _p(0) {}
-    ~Res();
-
-    /**
-     * set response code
-     *   - NOTE: it MUST be called before set_body() or body()
-     */
-    void set_status(int status) { *(uint32*)_p = status; }
-
-    /**
-     * add a HTTP header to the response
-     *   - NOTE: it MUST be called before set_body() or body()
-     *   - 'Content-Length' will be added automatically, no need to add it manually.
-     */
-    void add_header(const char* key, const char* val);
-
-    // add a header with an integer value
-    void add_header(const char* key, int val);
-
-    /**
-     * set body of the response
-     *   - The body length will be zero if no body was set.
-     */
-    void set_body(const void* s, size_t n);
-    void set_body(const char* s) { this->set_body(s, strlen(s)); }
-    void set_body(const fastring& s) { this->set_body(s.data(), s.size()); }
-
-  private:
-    http_res_t* _p;
-};
-
-/**
- * http server based on coroutine 
- *   - support both http and https, openssl required for https. 
- *   - support both ipv4 and ipv6. 
- *   - NOTE: http::Server will not url-decode the url in the request. The user may 
- *     call url_decode() in co/hash/url.h to decode the url, if necessary. 
- */
-class __coapi Server {
-  public:
-    Server();
-    ~Server();
-
-    /**
-     * set a callback for handling http request 
-     * 
-     * @param f  a pointer to void xxx(const Req&, Res&), or 
-     *           a reference of std::function<void(const Req&, Res&)>
-     */
-    Server& on_req(std::function<void(const Req&, Res&)>&& f);
-
-    Server& on_req(const std::function<void(const Req&, Res&)>& f) {
-        return this->on_req(std::function<void(const Req&, Res&)>(f));
+    // false if @name or @value would break the head. Content-Length,
+    // Connection and Date are written by the server; don't add them.
+    bool add_header(const char* name, const char* value) {
+        if (!co_http_field_ok(name, value)) return false;
+        _hdrs.append_cstr(name);
+        _hdrs.append(": ", 2);
+        _hdrs.append_cstr(value);
+        _hdrs.append("\r\n", 2);
+        return true;
     }
 
-    /**
-     * set a callback for handling http request 
-     * 
-     * @param f  a pointer to a method in class T.
-     * @param o  a pointer to an object of class T.
-     */
-    template<typename T>
-    Server& on_req(void (T::*f)(const Req&, Res&), T* o) {
-        return on_req(std::bind(f, o, std::placeholders::_1, std::placeholders::_2));
+    void set_body(const void* s, size_t n) { _body.assign(s, n); }
+    void set_body_cstr(const char* s) { _body.assign_cstr(s); }
+    void set_body_str(const fastring& s) { _body.assign(s.data(), s.size()); }
+
+    void reset() {
+        _status = 200;
+        _hdrs.clear();
+        _body.clear();
     }
 
-    /**
-     * start a http server 
-     *   - It will not block the calling thread. 
-     * 
-     * @param ip    server ip, either an ipv4 or ipv6 address, default: "0.0.0.0".
-     * @param port  server port, default: 80.
-     */
-    void start(const char* ip="0.0.0.0", int port=80);
+    // used by the server
+    int _status;
+    fastring _hdrs;
+    fastring _body;
+};
 
-    /**
-     * start a https server 
-     *   - openssl required by this method. 
-     *   - It will not block the calling thread. 
-     * 
-     * @param ip    server ip, either an ipv4 or ipv6 address.
-     * @param port  server port.
-     * @param key   path of the private key file for ssl.
-     * @param ca    path of the certificate file for ssl.
-     */
-    void start(const char* ip, int port, const char* key, const char* ca);
+class Server {
+  public:
+    Server() {
+        this->_fn = 0;
+        _ud = 0;
+        _s = 0;
+        _timeout = 5000;
+        _max_body = 8 << 20;
+        _max_conns = 1024;
+    }
+    Server(const Server& s) = delete;
+    void operator=(const Server& s) = delete;
+    ~Server() { this->close(); }
 
-    /**
-     * exit the server gracefully
-     *   - Once `exit()` was called, the listening socket will be closed, and new 
-     *     connections will not be accepted. Since co v3.0, the server will reset 
-     *     previously established connections.
-     */
-    void exit();
+    // @fn is called for every request, with @ud passed through. Without a
+    // handler every request gets 404.
+    void on_req(void (*fn)(const Req* req, Res* res, void* ud), void* ud) {
+        this->_fn = fn;
+        _ud = ud;
+    }
+
+    // listen on @ip:@port; port 0 picks a free port (see port())
+    bool start(const char* ip, int port);
+    int port() const { return _srv.port(); }
+
+    // bounds idling between requests, receiving one request from its first
+    // byte, and a stalled write (default 5000 ms)
+    void set_timeout(int ms) {
+        _timeout = ms;
+        this->_limits();
+    }
+
+    // larger bodies are answered with 413 (default 8 MB)
+    void set_max_body(size_t n) {
+        _max_body = n;
+        this->_limits();
+    }
+
+    // further clients wait in the listen backlog (default 1024)
+    void set_max_conns(int n) {
+        _max_conns = n;
+        this->_limits();
+    }
+
+    // one round of the loop: wait up to @ms for activity and handle it.
+    // Returns the number of requests answered, or -1.
+    int step(int ms) { return _s ? co_http_server_step(_s, ms) : -1; }
+
+    // serve until stop() is called (from a handler) and every response
+    // has been written
+    void run() {
+        while (_s && !co_http_server_done(_s)) {
+            if (co_http_server_step(_s, 1000) < 0) break;
+        }
+    }
+
+    // stop accepting and reading; the current response gets
+    // "Connection: close", and connections close once written
+    void stop() {
+        if (_s) co_http_server_stop(_s);
+    }
+    bool stopped() const { return _s == 0 || co_http_server_done(_s) != 0; }
+
+    // open connections, and connections accepted so far
+    int conns() const { return _s ? co_http_server_conns(_s) : 0; }
+    long accepted() const { return _s ? co_http_server_accepted(_s) : 0; }
+
+    void close() {
+        if (_s) {
+            co_http_server_free(_s);
+            _s = 0;
+        }
+        _srv.close();
+    }
+
+    // called from the loop
+    void _dispatch(void* conn, void* msg);
 
   private:
-    void* _p;
+    void _limits() {
+        if (_s) co_http_server_set_limits(_s, _timeout, _max_body, _max_conns);
+    }
 
-    DISALLOW_COPY_AND_ASSIGN(Server);
+    tcp::Server _srv;
+    co_http_server* _s;
+    void (*_fn)(const Req* req, Res* res, void* ud);
+    void* _ud;
+    Res _res;
+    int _timeout;
+    size_t _max_body;
+    int _max_conns;
+};
+
+class Client {
+  public:
+    Client() {
+        co_http_msg_init(&_res);
+        _port = 80;
+        _timeout = 5000;
+        _max_body = 64 << 20;
+    }
+    Client(const Client& c) = delete;
+    void operator=(const Client& c) = delete;
+    ~Client() { co_http_msg_free(&_res); }
+
+    // "http://host[:port]" or "host[:port]"; any path is ignored. https is
+    // refused: there is no TLS.
+    bool open(const char* url);
+
+    // for connecting and for each wait for data (default 5000 ms)
+    void set_timeout(int ms) { _timeout = ms; }
+
+    // larger response bodies fail the request (default 64 MB)
+    void set_max_body(size_t n) { _max_body = n; }
+
+    // a header sent with every request until clear_headers(); false if
+    // @name or @value would break the head
+    bool add_header(const char* name, const char* value) {
+        if (!co_http_field_ok(name, value)) return false;
+        _hdrs.append_cstr(name);
+        _hdrs.append(": ", 2);
+        _hdrs.append_cstr(value);
+        _hdrs.append("\r\n", 2);
+        return true;
+    }
+    void clear_headers() { _hdrs.clear(); }
+
+    // true once a whole response is read; then see status(), body(), header()
+    bool get(const char* path) { return this->request("GET", path, 0, 0); }
+    bool head(const char* path) { return this->request("HEAD", path, 0, 0); }
+    bool del(const char* path) { return this->request("DELETE", path, 0, 0); }
+    bool post(const char* path, const void* body, size_t n) { return this->request("POST", path, body, n); }
+    bool post_cstr(const char* path, const char* body) { return this->request("POST", path, body, strlen(body)); }
+    bool put(const char* path, const void* body, size_t n) { return this->request("PUT", path, body, n); }
+    bool request(const char* method, const char* path, const void* body, size_t n);
+
+    int status() const { return _res.h.status; }
+    const char* body() const { return _res.body.p ? _res.body.p : ""; }
+    size_t body_size() const { return _res.body.len; }
+    fastring header(const char* name) const {
+        size_t n = 0;
+        const char* v = co_http_msg_header(&_res, name, &n);
+        if (v == 0) return fastring();
+        return fastring(v, n);
+    }
+
+    // why the last call failed
+    const char* error() const { return _err.c_str(); }
+
+    void close() { _c.close(); }
+
+  private:
+    tcp::Conn _c;
+    fastring _host;
+    fastring _host_hdr;
+    int _port;
+    int _timeout;
+    size_t _max_body;
+    fastring _hdrs;
+    fastring _err;
+    co_http_msg _res;
 };
 
 } // http
-
-namespace so {
-
-/**
- * start a static http server 
- *   - This function will block the calling thread. 
- * 
- * @param root_dir  docroot, default: the current directory.
- * @param ip        server ip, either an ipv4 or ipv6 address, default: "0.0.0.0"
- * @param port      server port, default: 80.
- */
-__coapi void easy(const char* root_dir = ".", const char* ip = "0.0.0.0", int port = 80);
-
-/**
- * start a static https server 
- *   - This function will block the calling thread. 
- *   - openssl required by this method. 
- * 
- * @param root_dir  docroot.
- * @param ip        server ip, either an ipv4 or ipv6 address.
- * @param port      server port.
- * @param key       path of the private key file for ssl.
- * @param ca        path of the certificate file for ssl.
- */
-__coapi void easy(const char* root_dir, const char* ip, int port, const char* key, const char* ca);
-
-} // so
